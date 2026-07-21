@@ -60,4 +60,4 @@ python3 -m compileall -q skills
 
 ## 协作约定
 
-具体要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。朋友的 GitHub 用户名确认后，将其加入仓库 Collaborators，并在 `.github/CODEOWNERS` 中追加用户名。
+具体要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。当前代码所有者为 `@windSirius` 与 `@chenserry09-collab`；两位协作者通过短分支和 Pull Request 交叉评审改动。
