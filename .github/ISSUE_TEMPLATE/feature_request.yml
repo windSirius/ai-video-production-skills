@@ -1,0 +1,25 @@
+name: 流程改进
+description: 提议新的自动化能力、模块或验收规则
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: 使用场景
+      description: 给出会触发该能力的真实请求示例。
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 期望产物与完成标准
+      description: 说明可客观验证的输出、检查和授权边界。
+    validations:
+      required: true
+  - type: textarea
+    id: resources
+    attributes:
+      label: 可复用资源
+      description: 是否需要 scripts、references 或 assets；不要附私人素材。

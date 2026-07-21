@@ -1,0 +1,4 @@
+interface:
+  display_name: "剪映逐句画面匹配"
+  short_description: "为每句字幕扩检并评分多个镜头，再重建和验收剪映画面轨"
+  default_prompt: "Use $jianying-sentence-visual-matching to retrieve and rank multiple footage candidates for every subtitle, rebuild the Jianying picture track, and verify synchronization."

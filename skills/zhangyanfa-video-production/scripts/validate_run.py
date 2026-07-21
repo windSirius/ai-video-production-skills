@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""Validate request precision, batch closure, and objective evidence."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+from pathlib import Path
+
+from run_objective_checks import SUPPORTED_TYPES, run_plan
+
+
+REQUIRED_MANIFEST_KEYS = ("title", "current_phase", "status", "artifacts")
+REQUIRED_ARTIFACT_KEYS = ("request_contract", "verification_plan", "batch_ledger", "edit_ledger", "acceptance_report")
+MUSIC_SOURCE_ROOT = str(
+    Path(os.environ.get("AI_VIDEO_MUSIC_ROOT", Path.home() / "Music")).expanduser().resolve()
+)
+
+
+def resolve_path(root: Path, value: str) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else root / path
+
+
+def load_json(path: Path, errors: list[str]) -> dict:
+    if not path.exists():
+        errors.append(f"missing {path.name}")
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except Exception as exc:
+        errors.append(f"invalid {path.name}: {exc}")
+        return {}
+
+
+def validate_contract(contract: dict, plan: dict, errors: list[str]) -> None:
+    for field in ("objective", "deliverable"):
+        if not str(contract.get(field, "")).strip():
+            errors.append(f"request contract missing precise {field}")
+    scope = contract.get("scope", {})
+    if not scope.get("in_scope"):
+        errors.append("request contract requires nonempty in_scope")
+    if not scope.get("out_of_scope"):
+        errors.append("request contract requires nonempty out_of_scope")
+    criteria = contract.get("success_criteria", [])
+    if not criteria:
+        errors.append("request contract requires success_criteria")
+    check_ids = [check.get("id") for check in plan.get("checks", [])]
+    if not check_ids or any(not value for value in check_ids):
+        errors.append("verification plan requires named checks")
+    if len(check_ids) != len(set(check_ids)):
+        errors.append("verification plan check IDs must be unique")
+    checks = plan.get("checks", [])
+    for check in checks:
+        if check.get("type") not in SUPPORTED_TYPES:
+            errors.append(f"unsupported check type for {check.get('id')}: {check.get('type')}")
+    bgm_check = next((check for check in checks if check.get("id") == "bgm_sources_within_music"), None)
+    if not bgm_check:
+        errors.append("verification plan requires bgm_sources_within_music")
+    else:
+        if bgm_check.get("type") != "bgm_sources_within_root":
+            errors.append("bgm_sources_within_music must use bgm_sources_within_root")
+        if bgm_check.get("path") != "audio/bgm_manifest.json":
+            errors.append("bgm_sources_within_music must inspect audio/bgm_manifest.json")
+        if bgm_check.get("source_root") != MUSIC_SOURCE_ROOT:
+            errors.append(f"bgm_sources_within_music source_root must be {MUSIC_SOURCE_ROOT}")
+        if bgm_check.get("required") is not True:
+            errors.append("bgm_sources_within_music must be required")
+    criterion_check_ids = []
+    for criterion in criteria:
+        if not criterion.get("claim"):
+            errors.append(f"criterion {criterion.get('id')} missing claim")
+        check_id = criterion.get("check_id")
+        criterion_check_ids.append(check_id)
+        if check_id not in check_ids:
+            errors.append(f"criterion {criterion.get('id')} references missing check: {check_id}")
+    if len(criterion_check_ids) != len(set(criterion_check_ids)):
+        errors.append("each success criterion must use a unique check ID")
+    limits = contract.get("unit_limits", {})
+    if not limits or any(not isinstance(value, int) or value <= 0 for value in limits.values()):
+        errors.append("all unit_limits must be positive integers")
+    if not contract.get("stop_conditions"):
+        errors.append("request contract requires stop_conditions")
+    bgm_policy = contract.get("bgm_policy", {})
+    if bgm_policy.get("source_root") != MUSIC_SOURCE_ROOT:
+        errors.append(f"request contract bgm_policy.source_root must be {MUSIC_SOURCE_ROOT}")
+    if bgm_policy.get("allow_external_sources") is not False:
+        errors.append("request contract must forbid external BGM sources")
+    if bgm_policy.get("allow_generated_sources") is not False:
+        errors.append("request contract must forbid generated BGM sources")
+
+
+def validate_tsv_status(path: Path, accepted: tuple[str, ...], errors: list[str], label: str, priorities: set[str] | None = None) -> None:
+    if not path.exists():
+        errors.append(f"missing {path.name}")
+        return
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    for index, row in enumerate(rows, start=2):
+        if priorities and row.get("priority") not in priorities:
+            continue
+        if not row.get("status", "").lower().startswith(accepted):
+            errors.append(f"open {label} row at line {index}: {row.get('feedback') or row.get('assumption') or ''}")
+
+
+def validate_batch_ledger(path: Path, limits: dict, errors: list[str]) -> None:
+    if not path.exists():
+        errors.append(f"missing {path.name}")
+        return
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    for index, row in enumerate(rows, start=2):
+        if not row.get("status", "").lower().startswith(("pass", "waived")):
+            errors.append(f"open batch row at line {index}: {row.get('assumption', '')}")
+        limit_key = row.get("unit_limit_key", "")
+        if limit_key not in limits:
+            errors.append(f"batch line {index} uses unknown unit_limit_key: {limit_key}")
+            continue
+        try:
+            unit_count = int(row.get("unit_count", ""))
+        except ValueError:
+            errors.append(f"batch line {index} has invalid unit_count: {row.get('unit_count', '')}")
+            continue
+        if unit_count <= 0 or unit_count > int(limits[limit_key]):
+            errors.append(f"batch line {index} unit_count={unit_count} exceeds {limit_key}={limits[limit_key]}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("run_dir")
+    parser.add_argument("--contract-only", action="store_true")
+    args = parser.parse_args()
+    root = Path(args.run_dir).expanduser().resolve()
+    errors: list[str] = []
+
+    manifest = load_json(root / "run_manifest.json", errors)
+    contract = load_json(root / "request_contract.json", errors)
+    plan = load_json(root / "verification_plan.json", errors)
+    for key in REQUIRED_MANIFEST_KEYS:
+        if key not in manifest:
+            errors.append(f"manifest missing key: {key}")
+    validate_contract(contract, plan, errors)
+
+    if args.contract_only:
+        if errors:
+            print("CONTRACT VALIDATION FAILED")
+            for error in errors:
+                print(f"- {error}")
+            return 1
+        print("CONTRACT VALIDATION PASSED")
+        return 0
+
+    artifacts = manifest.get("artifacts", {}) if isinstance(manifest, dict) else {}
+    for key in REQUIRED_ARTIFACT_KEYS:
+        value = artifacts.get(key)
+        if not value:
+            errors.append(f"manifest artifact missing path: {key}")
+        elif not resolve_path(root, value).exists():
+            errors.append(f"artifact does not exist: {key} -> {value}")
+
+    validate_tsv_status(root / "edit_ledger.tsv", ("done", "waived"), errors, "P0/P1 ledger", {"P0", "P1"})
+    validate_batch_ledger(root / "batch_ledger.tsv", contract.get("unit_limits", {}), errors)
+
+    if manifest.get("status") != "complete":
+        errors.append("run_manifest status must be complete for final validation")
+
+    if not errors:
+        report = run_plan(root)
+        result_by_id = {row["id"]: row for row in report["results"]}
+        for row in report["results"]:
+            if row["required"] and not row["pass"]:
+                errors.append(f"objective check failed: {row['id']} -> {row['detail']}")
+        for criterion in contract.get("success_criteria", []):
+            result = result_by_id.get(criterion.get("check_id"))
+            if not result or not result.get("pass"):
+                errors.append(f"success criterion unproven: {criterion.get('id')} {criterion.get('claim')}")
+
+    if errors:
+        print("VALIDATION FAILED")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+    print("VALIDATION PASSED")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

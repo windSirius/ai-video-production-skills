@@ -1,0 +1,4 @@
+interface:
+  display_name: "剪映验收修订"
+  short_description: "根据甲方反馈修正素材、响度、节奏、复用和封面验收风险"
+  default_prompt: "Use $jianying-acceptance-polish to turn reviewer feedback into verified Jianying timeline revisions."

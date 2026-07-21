@@ -1,0 +1,46 @@
+# macOS and editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+config.local.*
+*.pem
+*.key
+
+# Generated runs and editor projects
+runs/
+outputs/
+recording_analysis/
+contact_sheets/
+*.draft_content.json
+
+# Media, voice data, and model weights
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.wav
+*.flac
+*.mp3
+*.m4a
+*.aac
+*.safetensors
+*.ckpt
+*.pth
+*.onnx
+*.bin

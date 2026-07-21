@@ -1,0 +1,4 @@
+interface:
+  display_name: "障眼法视频一条龙"
+  short_description: "从游戏任务录屏解析到剪映成片的模块化障眼法制作流程"
+  default_prompt: "使用 $zhangyanfa-video-production，先用 Apple Vision 将完整游戏任务录屏解析为可交给 Claude 的事实底稿，再按已验收模块继续制作。"

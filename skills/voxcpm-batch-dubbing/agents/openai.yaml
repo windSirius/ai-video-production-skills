@@ -1,0 +1,4 @@
+interface:
+  display_name: "VoxCPM 批量配音"
+  short_description: "批量控制 VoxCPM 克隆配音、分段保存、转写核对与音频质检"
+  default_prompt: "使用 $voxcpm-batch-dubbing 将这份文稿批量生成、保存并质检为 VoxCPM 克隆配音。"

@@ -1,0 +1,38 @@
+name: 流程缺陷
+description: 报告可复现的 Skill、脚本或生产流程问题
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: 影响模块
+      options:
+        - 总控流程
+        - VoxCPM 配音
+        - 剪映配音与字幕
+        - 逐句画面匹配
+        - 障眼法风格
+        - 验收修订
+        - 仓库工具或 CI
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题与复现步骤
+      description: 请使用脱敏信息，不要上传私人素材、声音或凭据。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 验证证据
+      description: 可附脱敏日志、检查 ID 和失败输出。
