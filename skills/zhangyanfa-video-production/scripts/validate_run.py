@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 
-from harness import FINAL_ACTION_ORDER, fingerprint_matches, final_order_passed
+from harness import FINAL_ACTION_ORDER, SCHEMA_VERSION, fingerprint_matches, final_order_passed
 from run_objective_checks import SUPPORTED_TYPES, run_plan
 
 
@@ -166,7 +166,7 @@ def validate_harness(root: Path, final: bool, errors: list[str]) -> dict:
     state = load_json(root / "harness/state.json", errors)
     if not state:
         return {}
-    if state.get("schema_version") != 1:
+    if state.get("schema_version") != SCHEMA_VERSION:
         errors.append(f"unsupported harness schema: {state.get('schema_version')}")
     if state.get("run_dir") != str(root):
         errors.append("harness run_dir does not match validation root")

@@ -117,6 +117,7 @@ Let `scripts/harness.py` create and close `H####` rows. Require `unit_count` to 
 - `state.json` contains one run ID, revision, lifecycle, current phase, frozen contract/plan fingerprints, at most one open action, failure budgets, phase seals, and the final action history;
 - `events.jsonl` is append-only and records preparation, begin, pass/fail, recovery, phase advance, and close events;
 - each live action has immutable before, failed/post, and rollback checkpoints when applicable;
+- each live action records the action/recipe/pre-state-bound registered route fingerprint, exact semantic target/ancestor/per-step-layout sequence, just-in-time bounds and hit points, per-step pre-click authorization and evidence, and the complete harness-managed interaction-trace fingerprint;
 - each verifier result records batch, mutation, check, observed target, fresh evidence hashes, metrics, and pass state;
 - do not store the complete history only in `state.json`, and do not edit harness files manually.
 

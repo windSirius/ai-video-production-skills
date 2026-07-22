@@ -11,6 +11,10 @@ Reproduce the user's editing grammar, not the topic-specific footage of one refe
 
 Read [style-profile.md](references/style-profile.md) before making editorial decisions. Read [hook-and-cover.md](references/hook-and-cover.md) when the brief calls for a high-retention opening or a platform cover. Read [jianying-execution.md](references/jianying-execution.md) before changing a live Jianying draft.
 
+## Permanent UI exclusion
+
+Treat every control labeled 「试试剪映助手」 or 「剪映助手」 as permanently forbidden. Never click, open, dismiss, focus, test, or use it. If it obscures a required control, use a verified non-assistant route or stop the live action; when called by `zhangyanfa-video-production`, obey its route-preflight, per-step pre-click authorization, and harness-managed trace gates.
+
 ## Workflow
 
 1. Inspect the target narration, subtitle timing, available footage, draft duration, and existing track structure.

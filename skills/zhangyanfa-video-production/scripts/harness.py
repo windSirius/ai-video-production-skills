@@ -18,6 +18,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import unicodedata
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,11 +27,65 @@ from typing import Any, Iterator
 from run_objective_checks import run_check, run_plan
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MUSIC_SOURCE_ROOT = Path(
     os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")
 ).expanduser().resolve()
 LIFECYCLES = {"ready", "prepared", "in_action", "repair_required", "blocked", "closing", "complete"}
+FORBIDDEN_UI_LABELS = ("试试剪映助手", "剪映助手")
+UI_ROUTE_SCHEMA_VERSION = 1
+UI_ROUTE_MAX_AGE_SECONDS = 600
+UI_HIT_TEST_MAX_AGE_SECONDS = 10
+ALLOWED_UI_ROUTE_METHODS = {
+    "accessibility",
+    "direct_control",
+    "keyboard_shortcut",
+    "menu",
+    "scroll_reveal",
+    "verified_layout",
+}
+ALLOWED_UI_EVENT_ACTIONS = {
+    "click",
+    "confirm",
+    "drag",
+    "focus",
+    "key_press",
+    "menu_select",
+    "press",
+    "scroll",
+    "select",
+    "shortcut",
+    "type",
+}
+SEMANTIC_UI_TARGET_FIELDS = (
+    "name",
+    "title",
+    "identifier",
+    "visible_text",
+    "description",
+    "value",
+    "role_description",
+)
+GENERIC_UI_TARGETS = {
+    "axbutton",
+    "button",
+    "control",
+    "item",
+    "target",
+    "unknown",
+    "按钮",
+    "控件",
+    "未知",
+}
+GLOBAL_UI_GUARDRAILS = {
+    "forbidden_ui_targets": {
+        "jianying_assistant": {
+            "labels": list(FORBIDDEN_UI_LABELS),
+            "policy": "never_interact",
+            "on_occlusion": "use_verified_non_assistant_route_or_fail",
+        }
+    }
+}
 LIVE_OBSERVATION_KEYS = (
     "app_bundle_version",
     "window_signature",
@@ -115,6 +170,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.media-identity-quick-add.v1",
         "verifier": "live_state_delta",
+        "ui_required_control": "将旁白素材快速添加至时间线",
+        "ui_route_id": "narration-media-identity-quick-add-v1",
+        "ui_anchor_terms": ["旁白", "narration", "快速添加", "quick add", "添加到时间线"],
         "media_required": True,
         "stable_media_required": True,
         "expect": {
@@ -137,6 +195,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.media-identity-quick-add-loop.v1",
         "verifier": "live_state_delta_and_loop_log",
+        "ui_required_control": "批量将旁白素材快速添加至时间线",
+        "ui_route_id": "narration-media-identity-quick-add-loop-v1",
+        "ui_anchor_terms": ["旁白", "narration", "快速添加", "quick add", "添加到时间线"],
         "loop_required": True,
         "expect": {
             **SAME_CORE,
@@ -158,6 +219,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.ax-or-clipboard-unicode.v1",
         "verifier": "live_state_delta",
+        "ui_required_control": "草稿名或时间线名",
+        "ui_route_id": "unicode-rename-ax-clipboard-v1",
+        "ui_anchor_terms": ["草稿名", "时间线名", "改名", "draft name", "timeline name", "rename"],
         "expect": {
             "timeline_count": "same",
             "project_timecode": "same",
@@ -175,6 +239,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.caption-export-remove-import-export.v1",
         "verifier": "live_state_delta_and_caption_transaction",
+        "ui_required_control": "字幕导出、删除、导入与再导出",
+        "ui_route_id": "caption-export-remove-import-export-v1",
+        "ui_anchor_terms": ["字幕", "caption", "subtitle"],
         "media_required": True,
         "stable_media_required": True,
         "expect": {
@@ -199,6 +266,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.equal-duration-replace-clip.v1",
         "verifier": "live_state_delta",
+        "ui_required_control": "替换画面片段",
+        "ui_route_id": "picture-replace-context-menu-v1",
+        "ui_anchor_terms": ["替换片段", "替换画面", "replace clip", "picture"],
         "media_required": True,
         "stable_media_required": True,
         "timing_contract_required": True,
@@ -222,6 +292,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.music-provenance-quick-add.v1",
         "verifier": "live_state_delta",
+        "ui_required_control": "将BGM素材快速添加至时间线",
+        "ui_route_id": "bgm-provenance-quick-add-v1",
+        "ui_anchor_terms": ["bgm", "音乐", "music", "快速添加", "添加到时间线"],
         "media_required": True,
         "stable_media_required": True,
         "timing_contract_required": True,
@@ -245,6 +318,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.single-split-delete-tail.v1",
         "verifier": "live_state_delta",
+        "ui_required_control": "分割并删除画面尾部",
+        "ui_route_id": "single-split-delete-tail-v1",
+        "ui_anchor_terms": ["分割", "split", "画面尾部", "delete tail", "尾部"],
         "timing_contract_required": True,
         "expect": {
             **SAME_CORE,
@@ -266,6 +342,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.delete-nonauthoritative-timeline.v1",
         "verifier": "live_state_delta",
+        "ui_required_control": "删除非权威时间线",
+        "ui_route_id": "delete-nonauthoritative-timeline-v1",
+        "ui_anchor_terms": ["时间线", "timeline", "删除"],
         "expect": {
             "draft_name": "same",
             "timeline_name": "same",
@@ -284,6 +363,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.caption-only-export.v1",
         "verifier": "live_state_delta",
+        "ui_required_control": "仅导出字幕",
+        "ui_route_id": "caption-export-accessibility-v1",
+        "ui_anchor_terms": ["字幕导出", "仅导出字幕", "caption export", "subtitle export"],
         "expect": SAME_ALL,
         "objective_check_required": True,
         "allowed_objective_types": ["srt_integrity"],
@@ -293,6 +375,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.open-middle-final-evidence.v1",
         "verifier": "live_state_delta",
+        "ui_required_control": "时间线定位与截图",
+        "ui_route_id": "open-middle-final-evidence-v1",
+        "ui_anchor_terms": ["播放头", "playhead", "时间线", "timeline", "截图", "capture"],
         "expect": SAME_ALL,
         "minimum_evidence": 3,
         "objective_check_required": True,
@@ -303,6 +388,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": True,
         "recipe_id": "jianying.save-home-reopen-verify.v1",
         "verifier": "live_state_delta",
+        "ui_required_control": "保存、返回首页并重新打开草稿",
+        "ui_route_id": "save-home-reopen-verify-v1",
+        "ui_anchor_terms": ["保存", "save", "草稿", "draft", "首页", "home", "重开", "reopen"],
         "expect": {**SAME_ALL, "reopened": "true"},
     },
 }
@@ -374,6 +462,685 @@ def read_json(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
+def normalize_ui_text(value: object) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value)).casefold()
+    return "".join(character for character in normalized if character.isalnum())
+
+
+class UIGuardrailViolation(ValueError):
+    def __init__(self, reason_code: str, detail: str) -> None:
+        super().__init__(f"{reason_code}: {detail}")
+        self.reason_code = reason_code
+        self.detail = detail
+
+
+def ui_guardrail_violation(reason_code: str, detail: str) -> None:
+    raise UIGuardrailViolation(reason_code, detail)
+
+
+def recursive_scalar_values(value: object) -> list[object]:
+    if isinstance(value, dict):
+        result: list[object] = []
+        for key, child in value.items():
+            result.append(key)
+            result.extend(recursive_scalar_values(child))
+        return result
+    if isinstance(value, list):
+        result = []
+        for child in value:
+            result.extend(recursive_scalar_values(child))
+        return result
+    return [value]
+
+
+def forbidden_ui_matches(values: list[object]) -> list[str]:
+    matches = set()
+    normalized_labels = {
+        label: normalize_ui_text(label)
+        for label in FORBIDDEN_UI_LABELS
+    }
+    for value in values:
+        normalized_value = normalize_ui_text(value)
+        if not normalized_value:
+            continue
+        for label, normalized_label in normalized_labels.items():
+            if normalized_label and normalized_label in normalized_value:
+                matches.add(label)
+    return sorted(matches)
+
+
+def parse_fresh_ui_timestamp(
+    value: object,
+    label: str,
+    *,
+    max_age_seconds: int = UI_ROUTE_MAX_AGE_SECONDS,
+) -> str:
+    try:
+        captured = datetime.fromisoformat(str(value))
+    except ValueError:
+        ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label} is not a valid ISO timestamp")
+    if captured.tzinfo is None:
+        ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label} must include a timezone")
+    age = datetime.now(timezone.utc).timestamp() - captured.timestamp()
+    if age < -60 or age > max_age_seconds:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"{label} is stale or from the future (age_seconds={age:.1f})",
+        )
+    return captured.isoformat()
+
+
+def normalize_forbidden_regions(value: object, label: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"{label} must be a list",
+        )
+    normalized_regions = []
+    for index, region in enumerate(value, start=1):
+        if not isinstance(region, dict) or set(region) != {"label", "bounds"}:
+            ui_guardrail_violation(
+                "forbidden_ui_route_unavailable",
+                f"{label}[{index}] requires exactly label and bounds",
+            )
+        matches = forbidden_ui_matches([region.get("label")])
+        if not matches:
+            ui_guardrail_violation(
+                "forbidden_ui_route_unavailable",
+                f"{label}[{index}] label is not a registered forbidden target",
+            )
+        normalized_regions.append(
+            {
+                "label": matches,
+                "bounds": ui_bounds_signature(region.get("bounds"), f"{label}[{index}].bounds"),
+            }
+        )
+    return normalized_regions
+
+
+def ui_node_signature(node: object, label: str) -> dict[str, str]:
+    if not isinstance(node, dict):
+        ui_guardrail_violation("forbidden_ui_interaction", f"{label} is not a UI node object")
+    allowed_fields = {"role", *SEMANTIC_UI_TARGET_FIELDS}
+    unknown_fields = sorted(set(node) - allowed_fields)
+    if unknown_fields:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"{label} contains unregistered fields: {unknown_fields}",
+        )
+    semantic_values = {
+        field: str(node.get(field, "")).strip()
+        for field in SEMANTIC_UI_TARGET_FIELDS
+        if str(node.get(field, "")).strip()
+    }
+    if not semantic_values:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"{label} needs a semantic name, title, identifier, visible text, description, or value; role alone is insufficient",
+        )
+    normalized_semantics = [normalize_ui_text(value) for value in semantic_values.values()]
+    if not any(len(value) >= 2 and value not in GENERIC_UI_TARGETS for value in normalized_semantics):
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"{label} uses only generic target metadata",
+        )
+    fields = ("role", *SEMANTIC_UI_TARGET_FIELDS)
+    return {
+        field: normalize_ui_text(node[field])
+        for field in fields
+        if field in node and str(node[field]).strip()
+    }
+
+
+def ui_bounds_signature(value: object, label: str) -> dict[str, float]:
+    if not isinstance(value, dict):
+        ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label} must be a bounds object")
+    result: dict[str, float] = {}
+    for field in ("x", "y", "width", "height"):
+        coordinate = value.get(field)
+        if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)):
+            ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label}.{field} must be numeric")
+        result[field] = float(coordinate)
+    if result["width"] <= 0 or result["height"] <= 0:
+        ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label} must have positive size")
+    return result
+
+
+def ui_point_signature(value: object, label: str) -> dict[str, float]:
+    if not isinstance(value, dict):
+        ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label} must be a point object")
+    result: dict[str, float] = {}
+    for field in ("x", "y"):
+        coordinate = value.get(field)
+        if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)):
+            ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label}.{field} must be numeric")
+        result[field] = float(coordinate)
+    return result
+
+
+def point_in_bounds(point: dict[str, float], bounds: dict[str, float]) -> bool:
+    return (
+        bounds["x"] <= point["x"] <= bounds["x"] + bounds["width"]
+        and bounds["y"] <= point["y"] <= bounds["y"] + bounds["height"]
+    )
+
+
+def bounds_intersect(first: dict[str, float], second: dict[str, float]) -> bool:
+    return not (
+        first["x"] + first["width"] <= second["x"]
+        or second["x"] + second["width"] <= first["x"]
+        or first["y"] + first["height"] <= second["y"]
+        or second["y"] + second["height"] <= first["y"]
+    )
+
+
+def ui_target_signature(
+    target: object,
+    label: str,
+    *,
+    require_geometry: bool,
+) -> dict[str, Any]:
+    if not isinstance(target, dict):
+        ui_guardrail_violation("forbidden_ui_interaction", f"{label} has no target object")
+    matches = forbidden_ui_matches(recursive_scalar_values(target))
+    if matches:
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            f"{label} or its ancestor targets Jianying Assistant label(s): {matches}",
+        )
+    allowed_fields = {
+        "role",
+        *SEMANTIC_UI_TARGET_FIELDS,
+        "ancestor_path",
+    }
+    if require_geometry:
+        allowed_fields.update({"bounds", "hit_test_point"})
+    unknown_fields = sorted(set(target) - allowed_fields)
+    if unknown_fields:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"{label} contains unregistered fields: {unknown_fields}",
+        )
+    node_fields = {"role", *SEMANTIC_UI_TARGET_FIELDS}
+    node_signature = ui_node_signature(
+        {field: target[field] for field in node_fields if field in target},
+        label,
+    )
+    ancestors = target.get("ancestor_path")
+    if not isinstance(ancestors, list) or not ancestors:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"{label} requires a nonempty accessibility ancestor_path",
+        )
+    ancestor_signatures = [
+        ui_node_signature(ancestor, f"{label}.ancestor_path[{index}]")
+        for index, ancestor in enumerate(ancestors, start=1)
+    ]
+    result: dict[str, Any] = {
+        "node": node_signature,
+        "ancestor_path": ancestor_signatures,
+    }
+    if not require_geometry:
+        return result
+    bounds = ui_bounds_signature(target.get("bounds"), f"{label}.bounds")
+    hit_test_point = ui_point_signature(target.get("hit_test_point"), f"{label}.hit_test_point")
+    if not point_in_bounds(hit_test_point, bounds):
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"{label} hit_test_point is outside target bounds",
+        )
+    result["bounds"] = bounds
+    result["hit_test_point"] = hit_test_point
+    return result
+
+
+def ui_step_signature(
+    step: object,
+    expected_sequence: int,
+    label: str,
+    *,
+    require_geometry: bool,
+) -> dict[str, Any]:
+    if not isinstance(step, dict):
+        ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label} must be an object")
+    if step.get("sequence") != expected_sequence:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"{label} sequence must be {expected_sequence}",
+        )
+    unknown_fields = sorted(set(step) - {"sequence", "action", "shortcut", "target", "window_signature"})
+    if unknown_fields:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"{label} contains unregistered fields: {unknown_fields}",
+        )
+    action = str(step.get("action", "")).strip().casefold().replace("-", "_")
+    if action not in ALLOWED_UI_EVENT_ACTIONS:
+        ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label} action is not registered: {action}")
+    matches = forbidden_ui_matches(recursive_scalar_values(step))
+    if matches:
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            f"{label} contains Jianying Assistant label(s): {matches}",
+        )
+    shortcut = str(step.get("shortcut", "")).strip()
+    if action in {"shortcut", "key_press"} and not shortcut:
+        ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label} requires shortcut")
+    window_signature = str(step.get("window_signature", "")).strip()
+    if not window_signature:
+        ui_guardrail_violation("forbidden_ui_route_unavailable", f"{label} requires window_signature")
+    return {
+        "sequence": expected_sequence,
+        "action": action,
+        "shortcut": normalize_ui_text(shortcut),
+        "window_signature": window_signature,
+        "target": ui_target_signature(
+            step.get("target"),
+            f"{label}.target",
+            require_geometry=require_geometry,
+        ),
+    }
+
+
+def actual_step_matches_planned(actual: object, planned: object) -> bool:
+    if not isinstance(actual, dict) or not isinstance(planned, dict):
+        return False
+    for field in ("sequence", "action", "shortcut", "window_signature"):
+        if actual.get(field) != planned.get(field):
+            return False
+    actual_target = actual.get("target") or {}
+    planned_target = planned.get("target") or {}
+    return (
+        actual_target.get("node") == planned_target.get("node")
+        and actual_target.get("ancestor_path") == planned_target.get("ancestor_path")
+    )
+
+
+def build_ui_route_binding(
+    *,
+    action_key: str,
+    recipe_id: str,
+    required_control: str,
+    observation_path: Path,
+    observation: dict[str, Any],
+    evidence: list[Path],
+) -> dict[str, Any]:
+    return {
+        "action_key": action_key,
+        "recipe_id": recipe_id,
+        "required_control": required_control,
+        "window_signature": observation["window_signature"],
+        "ui_recipe_profile": observation["ui_recipe_profile"],
+        "pre_observation_sha256": sha256_file(observation_path),
+        "evidence_sha256": sorted(sha256_file(path) for path in evidence),
+    }
+
+
+def validate_ui_route_preflight(path: Path, expected_binding: dict[str, Any]) -> dict[str, Any]:
+    try:
+        data = read_json(path, "UI route preflight")
+    except ValueError as exc:
+        ui_guardrail_violation("forbidden_ui_route_unavailable", str(exc))
+    if data.get("schema_version") != UI_ROUTE_SCHEMA_VERSION:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"UI route preflight schema_version must be {UI_ROUTE_SCHEMA_VERSION}",
+        )
+    allowed_top_level = {
+        "schema_version",
+        "captured_at",
+        *expected_binding.keys(),
+        "status",
+        "selected_route",
+        "visible_forbidden_regions",
+        "forbidden_targets_interacted",
+    }
+    unknown_top_level = sorted(set(data) - allowed_top_level)
+    if unknown_top_level:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"UI route preflight contains unregistered fields: {unknown_top_level}",
+        )
+    for field, expected in expected_binding.items():
+        actual = data.get(field)
+        if field == "evidence_sha256" and isinstance(actual, list):
+            actual = sorted(str(value) for value in actual)
+        if actual != expected:
+            ui_guardrail_violation(
+                "forbidden_ui_route_unavailable",
+                f"UI route preflight binding mismatch for {field}",
+            )
+    parse_fresh_ui_timestamp(data.get("captured_at"), "UI route preflight captured_at")
+    if data.get("forbidden_targets_interacted") != []:
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            "preflight must record forbidden_targets_interacted as []",
+        )
+    normalized_regions = normalize_forbidden_regions(
+        data.get("visible_forbidden_regions"),
+        "visible_forbidden_regions",
+    )
+    status = data.get("status")
+    if status not in {"available", "blocked"}:
+        ui_guardrail_violation("forbidden_ui_route_unavailable", "preflight status must be available or blocked")
+    if status == "blocked":
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            "required control has no verified route that avoids Jianying Assistant",
+        )
+    route = data.get("selected_route")
+    if not isinstance(route, dict):
+        ui_guardrail_violation("forbidden_ui_route_unavailable", "preflight requires selected_route")
+    if set(route) != {"route_id", "method", "steps"}:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            "selected_route requires exactly route_id, method, and steps",
+        )
+    method = str(route.get("method", "")).strip().casefold().replace("-", "_")
+    if method not in ALLOWED_UI_ROUTE_METHODS:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"selected_route method is not registered: {method}",
+        )
+    route_id = str(route.get("route_id", "")).strip()
+    spec = ACTION_REGISTRY.get(str(expected_binding.get("action_key")), {})
+    registered_route_id = str(spec.get("ui_route_id", ""))
+    if route_id != registered_route_id:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"selected_route route_id is not the registered route for this action: {route_id}",
+        )
+    route_matches = forbidden_ui_matches(recursive_scalar_values(route))
+    if route_matches:
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            f"selected_route contains Jianying Assistant label(s): {route_matches}",
+        )
+    steps = route.get("steps")
+    if not isinstance(steps, list) or not steps:
+        ui_guardrail_violation("forbidden_ui_route_unavailable", "selected_route requires planned steps")
+    planned_steps = [
+        ui_step_signature(
+            step,
+            index,
+            f"selected_route.steps[{index}]",
+            require_geometry=False,
+        )
+        for index, step in enumerate(steps, start=1)
+    ]
+    route_values = [normalize_ui_text(value) for value in recursive_scalar_values(steps)]
+    anchor_terms = [normalize_ui_text(value) for value in spec.get("ui_anchor_terms", [])]
+    if not anchor_terms or not any(
+        anchor and anchor in value
+        for value in route_values
+        for anchor in anchor_terms
+    ):
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            "selected_route steps do not identify the registered action control",
+        )
+    return {
+        "schema_version": UI_ROUTE_SCHEMA_VERSION,
+        "status": status,
+        "captured_at": data["captured_at"],
+        "binding": expected_binding,
+        "route_id": route_id,
+        "method": method,
+        "planned_step_inputs": steps,
+        "planned_steps": planned_steps,
+        "visible_forbidden_regions": normalized_regions,
+        "forbidden_labels_seen": sorted(
+            {label for region in normalized_regions for label in region["label"]}
+        ),
+        "fingerprint": fingerprint(path),
+    }
+
+
+def ui_trace_bindings(action: dict[str, Any]) -> dict[str, Any]:
+    route = action.get("ui_route_preflight") or {}
+    binding = route.get("binding") or {}
+    return {
+        "batch_id": action.get("batch_id"),
+        "token": action.get("token"),
+        "action_key": action.get("action_key"),
+        "recipe_id": action.get("recipe_id"),
+        "route_preflight_sha256": route.get("fingerprint", {}).get("sha256"),
+        "pre_observation_sha256": binding.get("pre_observation_sha256"),
+        "window_signature": binding.get("window_signature"),
+        "ui_recipe_profile": binding.get("ui_recipe_profile"),
+        "route_id": route.get("route_id"),
+    }
+
+
+def managed_ui_trace_path(root: Path, action: dict[str, Any]) -> Path:
+    return root / f"harness/ui_traces/{action['batch_id']}/attempt_{action['attempt']}.json"
+
+
+def initialize_managed_ui_trace(root: Path, action: dict[str, Any]) -> None:
+    trace_path = managed_ui_trace_path(root, action)
+    trace = {
+        "schema_version": UI_ROUTE_SCHEMA_VERSION,
+        "source": "harness_controlled_ui_executor",
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+        **ui_trace_bindings(action),
+        "coverage_complete": False,
+        "events": [],
+        "forbidden_targets_interacted": [],
+    }
+    atomic_json(trace_path, trace)
+    action["ui_execution"] = {
+        "trace_path": str(trace_path),
+        "next_sequence": 1,
+        "pending_authorization": None,
+        "completed_authorizations": [],
+    }
+
+
+def read_managed_ui_trace(path: Path, action: dict[str, Any]) -> dict[str, Any]:
+    execution = action.get("ui_execution") or {}
+    expected_path = Path(execution.get("trace_path", "")).expanduser().resolve()
+    if path.expanduser().resolve() != expected_path:
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            "interaction trace is not the harness-managed trace for this action attempt",
+        )
+    return read_json(expected_path, "harness-managed UI interaction trace")
+
+
+def validate_ui_hit_test(path: Path, action: dict[str, Any], expected_sequence: int) -> dict[str, Any]:
+    try:
+        data = read_json(path, "UI hit-test snapshot")
+    except ValueError as exc:
+        ui_guardrail_violation("forbidden_ui_route_unavailable", str(exc))
+    required_fields = {
+        "schema_version",
+        "observed_at",
+        "window_signature",
+        "step",
+        "visible_forbidden_regions",
+    }
+    if set(data) != required_fields:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"UI hit-test snapshot requires exactly {sorted(required_fields)}",
+        )
+    if data.get("schema_version") != UI_ROUTE_SCHEMA_VERSION:
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            f"UI hit-test schema_version must be {UI_ROUTE_SCHEMA_VERSION}",
+        )
+    parse_fresh_ui_timestamp(
+        data.get("observed_at"),
+        "UI hit-test observed_at",
+        max_age_seconds=UI_HIT_TEST_MAX_AGE_SECONDS,
+    )
+    route = action.get("ui_route_preflight") or {}
+    planned_steps = route.get("planned_steps") or []
+    if expected_sequence > len(planned_steps):
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            "UI hit-test has no corresponding planned step",
+        )
+    expected_step = planned_steps[expected_sequence - 1]
+    if data.get("window_signature") != expected_step.get("window_signature"):
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            "UI hit-test window_signature does not match this route step",
+        )
+    actual_step = ui_step_signature(
+        data.get("step"),
+        expected_sequence,
+        "UI hit-test step",
+        require_geometry=True,
+    )
+    if not actual_step_matches_planned(
+        actual_step,
+        expected_step,
+    ):
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            "UI hit-test target does not exactly match the next pre-approved route step",
+        )
+    visible_regions = normalize_forbidden_regions(
+        data.get("visible_forbidden_regions"),
+        "UI hit-test visible_forbidden_regions",
+    )
+    target_bounds = actual_step["target"]["bounds"]
+    hit_test_point = actual_step["target"]["hit_test_point"]
+    for region in visible_regions:
+        if bounds_intersect(target_bounds, region["bounds"]) or point_in_bounds(hit_test_point, region["bounds"]):
+            ui_guardrail_violation(
+                "forbidden_ui_interaction",
+                "live hit-test target or point intersects the Jianying Assistant region",
+            )
+    return {
+        "step": actual_step,
+        "visible_forbidden_regions": visible_regions,
+        "fingerprint": fingerprint(path),
+    }
+
+
+def validate_ui_interaction_trace(
+    path: Path,
+    action: dict[str, Any],
+    *,
+    require_event: bool,
+    allow_prefix: bool = False,
+) -> dict[str, Any]:
+    try:
+        data = read_managed_ui_trace(path, action)
+    except ValueError as exc:
+        ui_guardrail_violation("forbidden_ui_interaction", str(exc))
+    if data.get("schema_version") != UI_ROUTE_SCHEMA_VERSION:
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            f"UI interaction trace schema_version must be {UI_ROUTE_SCHEMA_VERSION}",
+        )
+    if data.get("source") != "harness_controlled_ui_executor":
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            "UI interaction trace must be generated by the harness-controlled UI executor",
+        )
+    allowed_top_level = {
+        "schema_version",
+        "source",
+        "created_at",
+        "updated_at",
+        *ui_trace_bindings(action).keys(),
+        "coverage_complete",
+        "events",
+        "forbidden_targets_interacted",
+    }
+    if set(data) != allowed_top_level:
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            "harness-managed trace contains missing or unregistered fields",
+        )
+    for field, expected in ui_trace_bindings(action).items():
+        if data.get(field) != expected:
+            ui_guardrail_violation("forbidden_ui_interaction", f"trace binding mismatch for {field}")
+    route = action.get("ui_route_preflight") or {}
+    execution = action.get("ui_execution") or {}
+    if execution.get("pending_authorization"):
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            "an authorized UI step has unknown completion state; inspect it and do not repeat it",
+        )
+    if data.get("coverage_complete") is not True:
+        ui_guardrail_violation("forbidden_ui_interaction", "UI interaction trace coverage is incomplete")
+    interacted = data.get("forbidden_targets_interacted")
+    if interacted != []:
+        ui_guardrail_violation("forbidden_ui_interaction", "trace reports a forbidden UI interaction")
+    events = data.get("events")
+    if not isinstance(events, list) or (require_event and not events):
+        ui_guardrail_violation("forbidden_ui_interaction", "UI interaction trace is missing required events")
+    actual_steps = []
+    completed_authorizations = execution.get("completed_authorizations") or []
+    for index, event in enumerate(events, start=1):
+        required_event_fields = {
+            "sequence",
+            "step",
+            "authorization_token",
+            "authorized_at",
+            "completed_at",
+            "hit_test_fingerprint",
+            "evidence",
+        }
+        if not isinstance(event, dict) or set(event) != required_event_fields or event.get("sequence") != index:
+            ui_guardrail_violation(
+                "forbidden_ui_interaction",
+                f"managed trace event {index} has an invalid structure",
+            )
+        if event.get("authorization_token") not in completed_authorizations:
+            ui_guardrail_violation(
+                "forbidden_ui_interaction",
+                f"managed trace event {index} lacks a completed pre-click authorization",
+            )
+        if not fingerprint_matches(event.get("hit_test_fingerprint", {})):
+            ui_guardrail_violation(
+                "forbidden_ui_interaction",
+                f"managed trace event {index} hit-test snapshot is missing or changed",
+            )
+        evidence = event.get("evidence")
+        if not isinstance(evidence, list) or not evidence or not all(fingerprint_matches(item) for item in evidence):
+            ui_guardrail_violation(
+                "forbidden_ui_interaction",
+                f"managed trace event {index} evidence is missing or changed",
+            )
+        if forbidden_ui_matches(recursive_scalar_values(event.get("step"))):
+            ui_guardrail_violation(
+                "forbidden_ui_interaction",
+                f"managed trace event {index} contains Jianying Assistant metadata",
+            )
+        actual_steps.append(event.get("step"))
+    planned_steps = route.get("planned_steps")
+    if not isinstance(planned_steps, list):
+        ui_guardrail_violation("forbidden_ui_interaction", "action has no validated planned route")
+    expected_steps = planned_steps[: len(actual_steps)] if allow_prefix else planned_steps
+    if (
+        len(actual_steps) != len(expected_steps)
+        or any(
+            not actual_step_matches_planned(actual, planned)
+            for actual, planned in zip(actual_steps, expected_steps)
+        )
+        or (not allow_prefix and len(actual_steps) != len(planned_steps))
+    ):
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            "interaction trace does not exactly match the pre-approved route",
+        )
+    return {
+        "coverage_complete": True,
+        "event_count": len(events),
+        "planned_event_count": len(planned_steps),
+        "route_match": "prefix" if allow_prefix else "exact",
+        "forbidden_match_count": 0,
+        "forbidden_targets_interacted": [],
+        "fingerprint": fingerprint(path),
+    }
+
+
 def fingerprint(path: Path, strong: bool = True) -> dict[str, Any]:
     resolved = path.expanduser().resolve()
     stat = resolved.stat()
@@ -432,11 +1199,63 @@ def validate_state(root: Path, state: dict[str, Any]) -> None:
         raise ValueError("open_action is inconsistent with lifecycle")
 
 
+def migrate_state_v1(root: Path, state: dict[str, Any]) -> dict[str, Any]:
+    previous_lifecycle = state.get("lifecycle")
+    action = state.get("open_action")
+    state["schema_version"] = SCHEMA_VERSION
+    if action and ACTION_REGISTRY.get(action.get("action_key"), {}).get("live"):
+        detail = (
+            "schema v1 live action has no trustworthy route binding; restore the pre-state and attach a fresh "
+            "non-assistant route preflight before retrying"
+        )
+        state["lifecycle"] = "blocked"
+        state["blocked"] = {
+            "reason": detail,
+            "reason_code": "forbidden_ui_route_unavailable",
+            "batch_id": action.get("batch_id"),
+            "rolled_back": False,
+            "at": utc_now(),
+            "schema_migration": "1_to_2",
+        }
+        state["next_action"] = {"kind": "request_user_decision"}
+        rows = read_ledger(root / "batch_ledger.tsv")
+        if any(row.get("batch_id") == action.get("batch_id") for row in rows):
+            update_ledger(
+                root,
+                action["batch_id"],
+                status="blocked",
+                measured=detail,
+            )
+        atomic_json(pending_action_path(root), action)
+        append_event(
+            root,
+            state,
+            "HARNESS_SCHEMA_MIGRATED_BLOCKED_LIVE_ACTION",
+            from_schema=1,
+            to_schema=SCHEMA_VERSION,
+            previous_lifecycle=previous_lifecycle,
+            batch_id=action.get("batch_id"),
+        )
+    else:
+        append_event(
+            root,
+            state,
+            "HARNESS_SCHEMA_MIGRATED",
+            from_schema=1,
+            to_schema=SCHEMA_VERSION,
+            previous_lifecycle=previous_lifecycle,
+        )
+    save_state(root, state)
+    return state
+
+
 def load_state(root: Path) -> dict[str, Any]:
     path = root / "harness/state.json"
     if not path.exists():
         raise ValueError(f"missing harness state; run: {Path(__file__).name} init {root}")
     state = read_json(path, "harness state")
+    if state.get("schema_version") == 1:
+        state = migrate_state_v1(root, state)
     validate_state(root, state)
     return state
 
@@ -766,7 +1585,7 @@ def make_token(state: dict[str, Any], action_key: str, attempt: int, checkpoint_
     return f"{action_key}-a{attempt}-{hashlib.sha256(payload.encode()).hexdigest()[:10]}"
 
 
-def status_payload(root: Path, state: dict[str, Any]) -> dict[str, Any]:
+def _status_payload(root: Path, state: dict[str, Any]) -> dict[str, Any]:
     pending_path = pending_action_path(root)
     if pending_path.exists():
         pending = read_json(pending_path, "pending action journal")
@@ -835,11 +1654,29 @@ def status_payload(root: Path, state: dict[str, Any]) -> dict[str, Any]:
             "command": f"python3 {shlex.quote(str(Path(__file__)))} begin {shlex.quote(str(root))} --token {action['token']}",
         }
     elif lifecycle == "in_action":
-        next_action = {
-            "kind": "inspect_pending_action",
-            "token": action["token"],
-            "instruction": "Do not repeat the mutation. Inspect current state, then verify or fail this token.",
-        }
+        execution = action.get("ui_execution") or {}
+        if execution.get("pending_authorization"):
+            next_action = {
+                "kind": "inspect_authorized_ui_step",
+                "token": action["token"],
+                "authorization_token": execution["pending_authorization"].get("token"),
+                "instruction": "An approved UI step has unknown completion state. Inspect it; never repeat it blindly.",
+            }
+        elif execution and int(execution.get("next_sequence", 0)) <= len(
+            action.get("ui_route_preflight", {}).get("planned_steps") or []
+        ):
+            next_action = {
+                "kind": "authorize_ui_step",
+                "token": action["token"],
+                "sequence": execution.get("next_sequence"),
+                "instruction": "Capture a fresh hit-test with target ancestry, bounds, hit point, and current forbidden regions; authorize it before one UI action.",
+            }
+        else:
+            next_action = {
+                "kind": "inspect_pending_action",
+                "token": action["token"],
+                "instruction": "Do not repeat the mutation. Inspect current state, then verify or fail this token.",
+            }
     elif lifecycle == "repair_required":
         next_action = {
             "kind": "retry_once",
@@ -854,6 +1691,50 @@ def status_payload(root: Path, state: dict[str, Any]) -> dict[str, Any]:
             "allowed_action_keys": sorted(ACTION_REGISTRY),
         }
     return {"lifecycle": lifecycle, "phase": state["phase"], "state_revision": state["state_revision"], "next_action": next_action}
+
+
+def status_payload(root: Path, state: dict[str, Any]) -> dict[str, Any]:
+    payload = _status_payload(root, state)
+    payload["global_ui_guardrails"] = GLOBAL_UI_GUARDRAILS
+    return payload
+
+
+def persist_ui_guardrail_block(
+    root: Path,
+    state: dict[str, Any],
+    violation: UIGuardrailViolation,
+    *,
+    action: dict[str, Any] | None = None,
+) -> None:
+    active_action = action or state.get("open_action")
+    state["lifecycle"] = "blocked"
+    state["blocked"] = {
+        "reason": violation.detail,
+        "reason_code": violation.reason_code,
+        "batch_id": active_action.get("batch_id") if active_action else None,
+        "rolled_back": active_action is None or not active_action.get("started_at"),
+        "at": utc_now(),
+    }
+    state["next_action"] = {"kind": "request_user_decision"}
+    if active_action:
+        rows = read_ledger(root / "batch_ledger.tsv")
+        if any(row.get("batch_id") == active_action.get("batch_id") for row in rows):
+            update_ledger(
+                root,
+                active_action["batch_id"],
+                status="blocked",
+                measured=violation.detail,
+            )
+        atomic_json(pending_action_path(root), active_action)
+    append_event(
+        root,
+        state,
+        "UI_GUARDRAIL_BLOCKED",
+        batch_id=active_action.get("batch_id") if active_action else None,
+        reason_code=violation.reason_code,
+        detail=violation.detail,
+    )
+    save_state(root, state)
 
 
 def command_init(args: argparse.Namespace) -> int:
@@ -883,7 +1764,8 @@ def command_init(args: argparse.Namespace) -> int:
 
 def command_status(args: argparse.Namespace) -> int:
     root = Path(args.run_dir).expanduser().resolve()
-    state = load_state(root)
+    with run_lock(root):
+        state = load_state(root)
     print(json.dumps(status_payload(root, state), ensure_ascii=False, indent=2))
     return 1 if drift_reasons(state) or state["lifecycle"] == "blocked" else 0
 
@@ -970,12 +1852,37 @@ def command_prepare(args: argparse.Namespace) -> int:
         timing_contract = None
         bgm_provenance = None
         loop_manifest = None
+        ui_route_preflight = None
         if spec["live"]:
+            if not args.ui_route_preflight:
+                violation = UIGuardrailViolation(
+                    "forbidden_ui_route_unavailable",
+                    "live mutation requires --ui-route-preflight with a verified route that avoids Jianying Assistant",
+                )
             observation_path = Path(args.observation or "").expanduser().resolve()
             if not args.observation:
                 raise ValueError("live mutation requires --observation PRE_STATE.json")
             observation = load_observation(observation_path)
             pre_evidence = evidence_paths(args.evidence, minimum=1)
+            if not args.ui_route_preflight:
+                persist_ui_guardrail_block(root, state, violation)
+                raise violation
+            expected_ui_binding = build_ui_route_binding(
+                action_key=args.action_key,
+                recipe_id=spec["recipe_id"],
+                required_control=spec["ui_required_control"],
+                observation_path=observation_path,
+                observation=observation,
+                evidence=pre_evidence,
+            )
+            try:
+                ui_route_preflight = validate_ui_route_preflight(
+                    Path(args.ui_route_preflight).expanduser().resolve(),
+                    expected_ui_binding,
+                )
+            except UIGuardrailViolation as violation:
+                persist_ui_guardrail_block(root, state, violation)
+                raise
             pre_checkpoint = save_checkpoint(root, batch_id, "before", observation, pre_evidence)
         if spec.get("media_required"):
             if not args.media:
@@ -998,7 +1905,16 @@ def command_prepare(args: argparse.Namespace) -> int:
             loop_manifest = validate_loop_manifest(Path(args.loop_manifest).expanduser().resolve(), args.unit_count)
             expectations["narration_clip_count"] = f"+{args.unit_count}"
 
-        checkpoint_digest = pre_checkpoint["observation_sha256"] if pre_checkpoint else canonical_digest(objective_check)
+        checkpoint_digest = (
+            canonical_digest(
+                {
+                    "pre_observation_sha256": pre_checkpoint["observation_sha256"],
+                    "ui_route_preflight_sha256": ui_route_preflight["fingerprint"]["sha256"],
+                }
+            )
+            if pre_checkpoint
+            else canonical_digest(objective_check)
+        )
         token = make_token(state, args.action_key, 1, checkpoint_digest)
         ledger_check_id = check_id if not args.objective_check_id else f"{check_id}+{args.objective_check_id}"
         action = {
@@ -1020,6 +1936,7 @@ def command_prepare(args: argparse.Namespace) -> int:
             "optional": bool(args.optional),
             "expectations": expectations,
             "pre_checkpoint": pre_checkpoint,
+            "ui_route_preflight": ui_route_preflight,
             "media": media,
             "timing_contract": timing_contract,
             "bgm_provenance": bgm_provenance,
@@ -1070,7 +1987,39 @@ def command_begin(args: argparse.Namespace) -> int:
         action = state.get("open_action") or {}
         if args.token != action.get("token"):
             raise ValueError("stale or foreign action token")
+        spec = ACTION_REGISTRY[action["action_key"]]
+        if spec["live"]:
+            preflight = action.get("ui_route_preflight") or {}
+            try:
+                preflight_fingerprint = preflight.get("fingerprint", {})
+                if not fingerprint_matches(preflight_fingerprint):
+                    ui_guardrail_violation(
+                        "forbidden_ui_route_unavailable",
+                        "UI route preflight changed or disappeared before begin",
+                    )
+                validated_preflight = validate_ui_route_preflight(
+                    Path(preflight_fingerprint["path"]),
+                    preflight.get("binding") or {},
+                )
+                if validated_preflight["fingerprint"].get("sha256") != preflight_fingerprint.get("sha256"):
+                    ui_guardrail_violation(
+                        "forbidden_ui_route_unavailable",
+                        "UI route preflight no longer matches the token-bound route",
+                    )
+            except (UIGuardrailViolation, KeyError, OSError, TypeError) as exc:
+                violation = (
+                    exc
+                    if isinstance(exc, UIGuardrailViolation)
+                    else UIGuardrailViolation(
+                        "forbidden_ui_route_unavailable",
+                        "live action has no complete token-bound UI route preflight",
+                    )
+                )
+                persist_ui_guardrail_block(root, state, violation, action=action)
+                raise violation
         action["started_at"] = utc_now()
+        if spec["live"]:
+            initialize_managed_ui_trace(root, action)
         atomic_json(pending_action_path(root), action)
         state["lifecycle"] = "in_action"
         state["next_action"] = {"kind": "inspect_pending_action", "token": args.token}
@@ -1079,6 +2028,159 @@ def command_begin(args: argparse.Namespace) -> int:
         save_state(root, state)
     print(json.dumps(status_payload(root, state), ensure_ascii=False, indent=2))
     return 0
+
+
+def command_authorize_ui_step(args: argparse.Namespace) -> int:
+    root = Path(args.run_dir).expanduser().resolve()
+    with run_lock(root):
+        state = load_state(root)
+        if state["lifecycle"] != "in_action":
+            raise ValueError("authorize-ui-step requires one in-progress action")
+        action = state.get("open_action") or {}
+        if args.token != action.get("token"):
+            raise ValueError("stale or foreign action token")
+        spec = ACTION_REGISTRY[action["action_key"]]
+        if not spec["live"]:
+            raise ValueError("authorize-ui-step is valid only for live actions")
+        execution = action.get("ui_execution") or {}
+        if execution.get("pending_authorization"):
+            raise ValueError(
+                "one UI step is already authorized with unknown completion state; inspect it and do not repeat it"
+            )
+        sequence = int(execution.get("next_sequence", 0))
+        planned_steps = action.get("ui_route_preflight", {}).get("planned_steps") or []
+        if sequence <= 0 or sequence > len(planned_steps):
+            raise ValueError("no further UI step is registered for this action")
+        hit_test_path = Path(args.hit_test).expanduser().resolve()
+        try:
+            fresh_evidence([hit_test_path], action["started_at"])
+            hit_test = validate_ui_hit_test(hit_test_path, action, sequence)
+        except (UIGuardrailViolation, OSError, ValueError) as exc:
+            violation = (
+                exc
+                if isinstance(exc, UIGuardrailViolation)
+                else UIGuardrailViolation("forbidden_ui_route_unavailable", str(exc))
+            )
+            persist_ui_guardrail_block(root, state, violation, action=action)
+            raise violation
+        authorization_payload = {
+            "run_id": state["run_id"],
+            "action_token": action["token"],
+            "sequence": sequence,
+            "step": hit_test["step"],
+            "hit_test_sha256": hit_test["fingerprint"].get("sha256"),
+            "state_revision": state["state_revision"],
+        }
+        authorization_token = "ui-step-" + canonical_digest(authorization_payload)[:20]
+        authorization = {
+            "token": authorization_token,
+            "sequence": sequence,
+            "step": hit_test["step"],
+            "hit_test_fingerprint": hit_test["fingerprint"],
+            "authorized_at": utc_now(),
+        }
+        execution["pending_authorization"] = authorization
+        action["ui_execution"] = execution
+        atomic_json(pending_action_path(root), action)
+        append_event(
+            root,
+            state,
+            "UI_STEP_AUTHORIZED",
+            batch_id=action["batch_id"],
+            sequence=sequence,
+            authorization_token=authorization_token,
+            hit_test=hit_test["fingerprint"],
+        )
+        save_state(root, state)
+    print(
+        json.dumps(
+            {
+                "authorization_token": authorization_token,
+                "sequence": sequence,
+                "instruction": "Execute exactly this one approved UI step, then run complete-ui-step. Do not perform any other UI interaction.",
+                "step": authorization["step"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def command_complete_ui_step(args: argparse.Namespace) -> int:
+    root = Path(args.run_dir).expanduser().resolve()
+    with run_lock(root):
+        state = load_state(root)
+        if state["lifecycle"] != "in_action":
+            raise ValueError("complete-ui-step requires one in-progress action")
+        action = state.get("open_action") or {}
+        if args.token != action.get("token"):
+            raise ValueError("stale or foreign action token")
+        execution = action.get("ui_execution") or {}
+        authorization = execution.get("pending_authorization")
+        if not isinstance(authorization, dict):
+            raise ValueError("no pre-click UI authorization is pending")
+        if args.authorization != authorization.get("token"):
+            raise ValueError("stale or foreign UI-step authorization")
+        if not fingerprint_matches(authorization.get("hit_test_fingerprint", {})):
+            violation = UIGuardrailViolation(
+                "forbidden_ui_interaction",
+                "authorized hit-test snapshot changed or disappeared before UI-step completion",
+            )
+            persist_ui_guardrail_block(root, state, violation, action=action)
+            raise violation
+        evidence = evidence_paths(args.evidence, minimum=1)
+        fresh_evidence(evidence, action["started_at"])
+        trace_path = Path(execution["trace_path"])
+        trace = read_managed_ui_trace(trace_path, action)
+        sequence = int(authorization["sequence"])
+        trace.setdefault("events", []).append(
+            {
+                "sequence": sequence,
+                "step": authorization["step"],
+                "authorization_token": authorization["token"],
+                "authorized_at": authorization["authorized_at"],
+                "completed_at": utc_now(),
+                "hit_test_fingerprint": authorization["hit_test_fingerprint"],
+                "evidence": [fingerprint(path) for path in evidence],
+            }
+        )
+        execution.setdefault("completed_authorizations", []).append(authorization["token"])
+        execution["pending_authorization"] = None
+        execution["next_sequence"] = sequence + 1
+        planned_steps = action.get("ui_route_preflight", {}).get("planned_steps") or []
+        trace["coverage_complete"] = execution["next_sequence"] > len(planned_steps)
+        trace["updated_at"] = utc_now()
+        action["ui_execution"] = execution
+        atomic_json(trace_path, trace)
+        atomic_json(pending_action_path(root), action)
+        append_event(
+            root,
+            state,
+            "UI_STEP_COMPLETED",
+            batch_id=action["batch_id"],
+            sequence=sequence,
+            authorization_token=authorization["token"],
+            evidence=[fingerprint(path) for path in evidence],
+        )
+        save_state(root, state)
+    print(json.dumps(status_payload(root, state), ensure_ascii=False, indent=2))
+    return 0
+
+
+def seal_managed_ui_trace_for_failure(action: dict[str, Any]) -> Path:
+    execution = action.get("ui_execution") or {}
+    if execution.get("pending_authorization"):
+        ui_guardrail_violation(
+            "forbidden_ui_interaction",
+            "cannot seal failure trace while an authorized UI step has unknown completion state",
+        )
+    trace_path = Path(execution.get("trace_path", "")).expanduser().resolve()
+    trace = read_managed_ui_trace(trace_path, action)
+    trace["coverage_complete"] = True
+    trace["updated_at"] = utc_now()
+    atomic_json(trace_path, trace)
+    return trace_path
 
 
 def command_skip(args: argparse.Namespace) -> int:
@@ -1143,7 +2245,15 @@ def close_action_as_failure(
     fingerprints[fingerprint_key] = int(fingerprints.get(fingerprint_key, 0)) + 1
     state.setdefault("recipe_success_streak", {})[action["recipe_id"]] = 0
 
-    fatal_codes = {"protected_state_changed", "mutation_inconclusive", "contract_drift", "bgm_provenance", "unrecoverable"}
+    fatal_codes = {
+        "protected_state_changed",
+        "mutation_inconclusive",
+        "contract_drift",
+        "bgm_provenance",
+        "unrecoverable",
+        "forbidden_ui_route_unavailable",
+        "forbidden_ui_interaction",
+    }
     limits = budgets["limits"]
     exhausted = (
         fingerprints[fingerprint_key] >= int(limits["same_failure"])
@@ -1171,7 +2281,18 @@ def close_action_as_failure(
         return
 
     action["attempt"] = int(action["attempt"]) + 1
-    checkpoint_digest = action.get("pre_checkpoint", {}).get("observation_sha256", canonical_digest(action))
+    checkpoint_digest = (
+        canonical_digest(
+            {
+                "pre_observation_sha256": action.get("pre_checkpoint", {}).get("observation_sha256"),
+                "ui_route_preflight_sha256": action.get("ui_route_preflight", {})
+                .get("fingerprint", {})
+                .get("sha256"),
+            }
+        )
+        if action.get("pre_checkpoint")
+        else canonical_digest(action)
+    )
     action["token"] = make_token(state, action["action_key"], action["attempt"], checkpoint_digest)
     action["started_at"] = None
     state["lifecycle"] = "repair_required"
@@ -1210,6 +2331,7 @@ def command_verify(args: argparse.Namespace) -> int:
         failures: list[str] = []
         metrics: dict[str, Any] = {}
         post_checkpoint = None
+        forbidden_ui_failure = False
 
         if spec["live"]:
             if not args.observation:
@@ -1221,6 +2343,23 @@ def command_verify(args: argparse.Namespace) -> int:
             post_checkpoint = save_checkpoint(root, action["batch_id"], f"after_attempt_{action['attempt']}", after, evidence)
             metrics["before_sha256"] = action["pre_checkpoint"]["observation_sha256"]
             metrics["after_sha256"] = post_checkpoint["observation_sha256"]
+            metrics["ui_route_preflight"] = action.get("ui_route_preflight")
+            if not args.ui_interaction_trace:
+                failures.append("forbidden_ui_interaction: missing UI interaction trace")
+                forbidden_ui_failure = True
+            else:
+                trace_path = Path(args.ui_interaction_trace).expanduser().resolve()
+                try:
+                    fresh_evidence([trace_path], action["started_at"])
+                    metrics["ui_interaction_trace_fingerprint"] = fingerprint(trace_path)
+                    metrics["ui_interaction_trace"] = validate_ui_interaction_trace(
+                        trace_path,
+                        action,
+                        require_event=True,
+                    )
+                except Exception as exc:
+                    failures.append(str(exc))
+                    forbidden_ui_failure = True
         else:
             check = find_plan_check(root, action["check_id"])
             if not check:
@@ -1322,7 +2461,13 @@ def command_verify(args: argparse.Namespace) -> int:
             close_action_as_failure(
                 root,
                 state,
-                "protected_state_changed" if protected_failure else "check_failed",
+                (
+                    "forbidden_ui_interaction"
+                    if forbidden_ui_failure
+                    else "protected_state_changed"
+                    if protected_failure
+                    else "check_failed"
+                ),
                 "; ".join(failures),
                 evidence + [result_path],
                 rolled_back,
@@ -1370,6 +2515,33 @@ def command_fail(args: argparse.Namespace) -> int:
             raise ValueError("stale or foreign action token")
         evidence = evidence_paths(args.evidence, minimum=1)
         fresh_evidence(evidence, action["started_at"])
+        spec = ACTION_REGISTRY[action["action_key"]]
+        if spec["live"]:
+            trace_error = None
+            if not args.ui_interaction_trace:
+                trace_error = "missing UI interaction trace"
+            else:
+                try:
+                    trace_path = seal_managed_ui_trace_for_failure(action)
+                    if Path(args.ui_interaction_trace).expanduser().resolve() != trace_path:
+                        ui_guardrail_violation(
+                            "forbidden_ui_interaction",
+                            "fail must use the harness-managed UI interaction trace",
+                        )
+                    trace_files = evidence_paths([str(trace_path)], minimum=1)
+                    fresh_evidence(trace_files, action["started_at"])
+                    evidence.extend(trace_files)
+                    validate_ui_interaction_trace(
+                        trace_path,
+                        action,
+                        require_event=args.reason_code != "forbidden_ui_route_unavailable",
+                        allow_prefix=True,
+                    )
+                except Exception as exc:
+                    trace_error = str(exc)
+            if trace_error:
+                args.reason_code = "forbidden_ui_interaction"
+                args.detail = f"{args.detail}; UI trace failed closed: {trace_error}"
         rolled_back = bool(args.rolled_back)
         if args.observation:
             observation = load_observation(Path(args.observation).expanduser().resolve())
@@ -1505,12 +2677,14 @@ def command_unblock(args: argparse.Namespace) -> int:
             raise ValueError("unblock is only valid for a blocked harness")
         if args.authorized_by != "user":
             raise ValueError("unblock requires explicit user authority: --authorized-by user")
+        previous_block = state.get("blocked") or {}
         action = state.get("open_action")
         if action:
             if action.get("pre_checkpoint"):
                 if not args.observation:
                     raise ValueError("unblocking a live action requires --observation proving restoration")
-                restored = load_observation(Path(args.observation).expanduser().resolve())
+                observation_path = Path(args.observation).expanduser().resolve()
+                restored = load_observation(observation_path)
                 before = read_json(Path(action["pre_checkpoint"]["observation"]), "pre observation")
                 restoration_failures = compare_observations(
                     before, restored, {field: "same" for field in LIVE_OBSERVATION_KEYS}
@@ -1519,12 +2693,53 @@ def command_unblock(args: argparse.Namespace) -> int:
                     raise ValueError("live state not restored: " + "; ".join(restoration_failures))
                 unblock_evidence = evidence_paths(args.evidence, minimum=1)
                 save_checkpoint(root, action["batch_id"], "user_unblock_restored", restored, unblock_evidence)
+                spec = ACTION_REGISTRY[action["action_key"]]
+                if spec["live"]:
+                    if not args.ui_route_preflight:
+                        raise ValueError(
+                            "unblocking a live action requires a fresh --ui-route-preflight; user authority cannot waive the Jianying Assistant exclusion"
+                        )
+                    expected_ui_binding = build_ui_route_binding(
+                        action_key=action["action_key"],
+                        recipe_id=action["recipe_id"],
+                        required_control=spec["ui_required_control"],
+                        observation_path=observation_path,
+                        observation=restored,
+                        evidence=unblock_evidence,
+                    )
+                    try:
+                        action["ui_route_preflight"] = validate_ui_route_preflight(
+                            Path(args.ui_route_preflight).expanduser().resolve(),
+                            expected_ui_binding,
+                        )
+                    except UIGuardrailViolation as violation:
+                        append_event(
+                            root,
+                            state,
+                            "UI_UNBLOCK_ROUTE_REJECTED",
+                            batch_id=action.get("batch_id"),
+                            reason_code=violation.reason_code,
+                            detail=violation.detail,
+                        )
+                        save_state(root, state)
+                        raise
             action["attempt"] = int(action.get("attempt", 1)) + 1
-            checkpoint_digest = action.get("pre_checkpoint", {}).get("observation_sha256", canonical_digest(action))
+            checkpoint_digest = (
+                canonical_digest(
+                    {
+                        "pre_observation_sha256": action.get("pre_checkpoint", {}).get("observation_sha256"),
+                        "ui_route_preflight_sha256": action.get("ui_route_preflight", {})
+                        .get("fingerprint", {})
+                        .get("sha256"),
+                    }
+                )
+                if action.get("pre_checkpoint")
+                else canonical_digest(action)
+            )
             action["token"] = make_token(state, action["action_key"], action["attempt"], checkpoint_digest)
             action["started_at"] = None
             update_ledger(root, action["batch_id"], status="open_repair", measured=args.reason)
-        append_event(root, state, "USER_UNBLOCKED", reason=args.reason, previous_block=state.get("blocked"))
+        append_event(root, state, "USER_UNBLOCKED", reason=args.reason, previous_block=previous_block)
         state["blocked"] = None
         if action:
             state["next_action"] = {"kind": "retry_once", "token": action["token"]}
@@ -1662,6 +2877,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--objective-check-id")
     prepare.add_argument("--observation")
     prepare.add_argument("--evidence", action="append")
+    prepare.add_argument("--ui-route-preflight")
     prepare.add_argument("--expect", action="append")
     prepare.add_argument("--media")
     prepare.add_argument("--timing-contract")
@@ -1673,6 +2889,19 @@ def build_parser() -> argparse.ArgumentParser:
     begin.add_argument("run_dir")
     begin.add_argument("--token", required=True)
     begin.set_defaults(func=command_begin)
+
+    authorize_ui_step = sub.add_parser("authorize-ui-step")
+    authorize_ui_step.add_argument("run_dir")
+    authorize_ui_step.add_argument("--token", required=True)
+    authorize_ui_step.add_argument("--hit-test", required=True)
+    authorize_ui_step.set_defaults(func=command_authorize_ui_step)
+
+    complete_ui_step = sub.add_parser("complete-ui-step")
+    complete_ui_step.add_argument("run_dir")
+    complete_ui_step.add_argument("--token", required=True)
+    complete_ui_step.add_argument("--authorization", required=True)
+    complete_ui_step.add_argument("--evidence", action="append", required=True)
+    complete_ui_step.set_defaults(func=command_complete_ui_step)
 
     skip = sub.add_parser("skip")
     skip.add_argument("run_dir")
@@ -1691,6 +2920,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--rollback-observation")
     verify.add_argument("--transaction-log")
     verify.add_argument("--loop-results")
+    verify.add_argument("--ui-interaction-trace")
     verify.set_defaults(func=command_verify)
 
     fail = sub.add_parser("fail")
@@ -1699,12 +2929,23 @@ def build_parser() -> argparse.ArgumentParser:
     fail.add_argument(
         "--reason-code",
         required=True,
-        choices=("no_change", "wrong_media", "check_failed", "protected_state_changed", "mutation_inconclusive", "bgm_provenance", "unrecoverable"),
+        choices=(
+            "no_change",
+            "wrong_media",
+            "check_failed",
+            "protected_state_changed",
+            "mutation_inconclusive",
+            "bgm_provenance",
+            "unrecoverable",
+            "forbidden_ui_route_unavailable",
+            "forbidden_ui_interaction",
+        ),
     )
     fail.add_argument("--detail", required=True)
     fail.add_argument("--evidence", action="append", required=True)
     fail.add_argument("--observation")
     fail.add_argument("--rolled-back", action="store_true")
+    fail.add_argument("--ui-interaction-trace")
     fail.set_defaults(func=command_fail)
 
     advance = sub.add_parser("advance")
@@ -1720,6 +2961,7 @@ def build_parser() -> argparse.ArgumentParser:
     unblock.add_argument("--authorized-by", required=True, choices=("user",))
     unblock.add_argument("--observation")
     unblock.add_argument("--evidence", action="append")
+    unblock.add_argument("--ui-route-preflight")
     unblock.set_defaults(func=command_unblock)
 
     rebind = sub.add_parser("rebind")

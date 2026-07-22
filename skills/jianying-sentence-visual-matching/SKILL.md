@@ -10,6 +10,7 @@ Build a picture track from narration meaning, one spoken unit at a time, without
 ## Non-negotiable rules
 
 - Read and follow the Computer Use skill before operating Jianying or CapCut.
+- Treat every control labeled 「试试剪映助手」 or 「剪映助手」 as permanently forbidden. Never click, open, dismiss, focus, test, or use it. If it obscures a required control, use a verified non-assistant route or stop the live action; when called by `zhangyanfa-video-production`, obey its route-preflight, per-step pre-click authorization, and harness-managed trace gates.
 - Preserve the narration, caption timing, caption style, and audio tracks unless the user explicitly asks to change them.
 - Treat every sentence or caption unit as an independent retrieval problem. Do not select one long source passage merely because it roughly covers a paragraph.
 - Produce at least three candidates for every ordinary sentence before selecting one. For a uniquely constrained line, document why fewer exist and run the expansion ladder.
