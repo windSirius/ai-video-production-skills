@@ -5,6 +5,7 @@
 - Prefer the running app selected by `AI_VIDEO_EDITOR_APP` when set. Otherwise resolve the active Jianying/CapCut application by display name or bundle identifier and verify the target window before acting.
 - Re-query after every action that changes panels, selection, or list contents.
 - If Computer Use reports that the user changed the app, stop using current indexes and capture fresh state.
+- Treat 「试试剪映助手」 and 「剪映助手」 as forbidden targets. Detect their labels, ancestor chain, and bounds only to avoid them; never click, open, dismiss, focus, test, or use them. If they block a required control, take a verified non-assistant route or stop. Under the production harness, every UI step also requires a fresh hit-test and one-use pre-click authorization.
 
 ## Audio insertion
 

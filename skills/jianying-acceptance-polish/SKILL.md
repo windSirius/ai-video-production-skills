@@ -10,6 +10,7 @@ Convert broad review language into precise, reversible timeline edits while pres
 ## Non-negotiable rules
 
 - Read and follow the Computer Use skill before operating Jianying or CapCut.
+- Treat every control labeled 「试试剪映助手」 or 「剪映助手」 as permanently forbidden. Never click, open, dismiss, focus, test, or use it. If it obscures a required control, use a verified non-assistant route or stop the live action; when called by `zhangyanfa-video-production`, obey its route-preflight, per-step pre-click authorization, and harness-managed trace gates.
 - Treat the review text as requirements, not as permission to alter unrelated creative choices.
 - Resolve each comment to an exact timeline range, track, asset, and acceptance test before editing.
 - Preserve caption text, styling, and timing unless the feedback explicitly includes subtitles.

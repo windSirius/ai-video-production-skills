@@ -10,6 +10,7 @@ Turn numbered narration WAV files and a clean script into one sequential audio t
 ## Non-negotiable rules
 
 - Read and follow the Computer Use skill before operating Jianying or CapCut.
+- Treat every control labeled 「试试剪映助手」 or 「剪映助手」 as permanently forbidden. Never click, open, dismiss, focus, test, or use it. If it obscures a required control, use a verified non-assistant route or stop the live action; when called by `zhangyanfa-video-production`, obey its route-preflight, per-step pre-click authorization, and harness-managed trace gates.
 - Preserve the user's open project and prepared UI state. Re-query the app after every meaningful action and whenever the user interacts.
 - Never append audio while the playhead is still at zero. Focus the timeline, jump to the project end, then add the next clip.
 - Never simulate a caption merge by assigning the same complete sentence to adjacent time segments. This creates duplicate rows even if the rendered pixels look continuous.

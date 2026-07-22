@@ -4,19 +4,142 @@ Use `scripts/harness.py` as the sole authority for production order after the re
 
 Do not edit `harness/state.json`, `harness/events.jsonl`, or harness-managed `H####` ledger rows by hand. Do not perform a live mutation before `begin`, and do not repeat a mutation after a crash or lost tool response.
 
+## Permanent forbidden UI target
+
+Treat controls whose accessible name, title, identifier, description, or visible text contains 「试试剪映助手」 or 「剪映助手」 as permanently forbidden. This applies to every phase, action, retry, recovery, QA step, and child Jianying Skill.
+
+- Never click, open, dismiss, focus, test, confirm, drag, type into, or otherwise activate the assistant.
+- Never click it to clear an overlay. Seeing it is not itself a failure; targeting or activating it is.
+- If it overlaps a required control, use a previously verified accessibility, menu, keyboard, scrolling, or layout route whose target is not the assistant. If no such route exists, close the action with `forbidden_ui_route_unavailable`; do not improvise through its bounds.
+- No harness token, recipe, user-interface guess, or later user unblock can waive this exclusion.
+
+Every live `prepare` requires `--ui-route-preflight PATH`. The schema-v1 JSON is valid for at most ten minutes and binds the route to the exact action key, registered recipe, required-control name from `ACTION_REGISTRY`, window signature, UI recipe profile, pre-observation SHA-256, and all pre-evidence SHA-256 values. It must use that action's registered `ui_route_id`, and its observed targets must contain one of the action's registered semantic anchor terms. A recipe or route name is not evidence: if current Jianying does not expose the required semantic control, stop and calibrate it from read-only AX/hit-test evidence before production.
+
+Every planned target requires a strong semantic identity, a nonempty accessibility ancestor path, and the allowed `window_signature` for that individual step. Multi-screen recipes such as save → home → reopen must declare their layout transition step by step; they are not forced to reuse the initial editor signature. Record currently visible Jianying Assistant regions with label and bounds. Role-only, generic, unrelated, or assistant-descended targets are rejected. Keep `"forbidden_targets_interacted": []`. A blocked, malformed, stale, or weak route persistently blocks the harness and receives no mutation token.
+
+Do not hand-author the interaction trace. After `begin`, capture a hit-test snapshot no more than ten seconds before each intended UI operation. It must repeat the planned step with its actual semantic target, ancestor chain, bounds, hit point, current window signature, and all currently visible forbidden regions. Run `authorize-ui-step`; only a successful one-use authorization permits that exact next action. Immediately after the action, run `complete-ui-step` with fresh evidence. If a response is lost between authorization and completion, inspect the UI and do not repeat the action.
+
+Every live `verify` or `fail` requires the canonical harness-managed trace path from `harness/ui_traces/`. The trace source is `harness_controlled_ui_executor` and it binds to the exact batch, token, action, recipe, preflight hash, pre-observation hash, window signature, UI profile, route ID, one-use authorizations, hit-test snapshots, and fresh step evidence. Successful verification requires an exact step-for-step match to the pre-approved route; failure may seal only its exact completed prefix. Unknown targets, incomplete coverage, extra or changed steps, an outstanding authorization, a hand-authored trace, or a normalized match to a forbidden label blocks the action. Unicode width, whitespace, punctuation, nested metadata, ancestor labels, and prefix variations do not bypass matching.
+
+Minimal preflight:
+
+```json
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-23T08:00:00+12:00",
+  "action_key": "caption_canonical_export",
+  "recipe_id": "jianying.caption-only-export.v1",
+  "required_control": "仅导出字幕",
+  "window_signature": "1920x1080-main-v1",
+  "ui_recipe_profile": "jianying-macos-observed-v1",
+  "pre_observation_sha256": "<sha256 of PRE_STATE.json>",
+  "evidence_sha256": ["<sha256 of preflight screenshot or AX snapshot>"],
+  "status": "available",
+  "selected_route": {
+    "route_id": "caption-export-accessibility-v1",
+    "method": "accessibility",
+    "steps": [
+      {
+        "sequence": 1,
+        "action": "press",
+        "window_signature": "1920x1080-main-v1",
+        "target": {
+          "role": "AXButton",
+          "name": "导出",
+          "identifier": "export-open",
+          "visible_text": "导出",
+          "ancestor_path": [
+            {
+              "role": "AXWindow",
+              "name": "剪映专业版主窗口",
+              "identifier": "jianying-main-window"
+            }
+          ]
+        }
+      },
+      {
+        "sequence": 2,
+        "action": "press",
+        "window_signature": "jianying-export-dialog-v1",
+        "target": {
+          "role": "AXButton",
+          "name": "字幕导出",
+          "identifier": "caption-export",
+          "visible_text": "字幕导出",
+          "ancestor_path": [
+            {
+              "role": "AXWindow",
+              "name": "导出",
+              "identifier": "jianying-export-window"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "visible_forbidden_regions": [
+    {
+      "label": "试试剪映助手",
+      "bounds": {"x": 1560, "y": 900, "width": 280, "height": 80}
+    }
+  ],
+  "forbidden_targets_interacted": []
+}
+```
+
+Minimal fresh hit-test snapshot submitted before the click:
+
+```json
+{
+  "schema_version": 1,
+  "observed_at": "2026-07-23T08:00:06+12:00",
+  "window_signature": "jianying-export-dialog-v1",
+  "step": {
+    "sequence": 2,
+    "action": "press",
+    "window_signature": "jianying-export-dialog-v1",
+    "target": {
+      "role": "AXButton",
+      "name": "字幕导出",
+      "identifier": "caption-export",
+      "visible_text": "字幕导出",
+      "ancestor_path": [
+        {
+          "role": "AXWindow",
+          "name": "导出",
+          "identifier": "jianying-export-window"
+        }
+      ],
+      "bounds": {"x": 1260, "y": 780, "width": 150, "height": 44},
+      "hit_test_point": {"x": 1335, "y": 802}
+    }
+  },
+  "visible_forbidden_regions": [
+    {
+      "label": "试试剪映助手",
+      "bounds": {"x": 1560, "y": 900, "width": 280, "height": 80}
+    }
+  ]
+}
+```
+
+The identifiers and coordinates above illustrate the schema only; they are not reusable evidence. The preflight freezes semantic targets, ancestor identity, order, and each step's allowed layout; the just-in-time hit-test supplies current geometry. Measure the target, ancestor chain, bounds, hit point, and forbidden regions from the live Jianying window before each step. If they do not match the registered route contract, stop.
+
+If a token-bound preflight changes or disappears before `begin`, the open action is persistently blocked. `unblock` cannot reuse the old route: a live action requires restored-state evidence plus a fresh `--ui-route-preflight`. Harness-state schema v1 runs migrate to harness-state schema v2 automatically; any open legacy live action is blocked until that same restoration-and-fresh-route procedure succeeds.
+
 ## Required command loop
 
 Run this loop for every production mutation:
 
 1. `python3 scripts/harness.py resume RUN_DIR`
 2. Obey the single `next_action` object. Ignore any remembered plan that conflicts with it.
-3. If it says `prepare`, prepare exactly one registered action with a pre-observation and evidence. Preparation does not authorize a mutation.
+3. If it says `prepare`, prepare exactly one registered action with a pre-observation, evidence, and a non-assistant UI route preflight. Preparation does not authorize a mutation.
 4. Run the returned `begin` command. Its token authorizes only the named recipe and mutation class.
-5. Perform that one mutation.
-6. Capture a fresh post-observation and evidence, then call `verify`; or call `fail` immediately.
+5. For each planned UI step: capture a fresh hit-test JSON; run `authorize-ui-step RUN_DIR --token TOKEN --hit-test HIT_TEST.json`; perform exactly the returned one step; then run `complete-ui-step RUN_DIR --token TOKEN --authorization UI_STEP_TOKEN --evidence FRESH_STEP_EVIDENCE`. Never batch multiple clicks under one authorization.
+6. Capture a fresh post-observation and action evidence. Call `verify` with the canonical trace path emitted under `harness/ui_traces/`; or call `fail`, which may seal only a completed prefix of that same managed trace.
 7. Resume again. Never choose a second action while one is prepared, in progress, awaiting repair, or blocked.
 
-If `resume` returns `inspect_pending_action`, inspect the live project and verify or fail the existing token. Do not click the action again: the previous process may have completed the mutation before losing its response.
+If `resume` returns `inspect_authorized_ui_step`, inspect the live project before doing anything else. Do not click that step again: the previous process may have completed it before losing its response. If it returns `inspect_pending_action`, inspect the live project and verify or fail the existing token without repeating the mutation.
 
 If it returns any `recover_*` action, run `python3 scripts/harness.py recover RUN_DIR`. Recovery reconciles the write-ahead action journal, ledger, and state; it never repeats a production mutation.
 
@@ -54,6 +177,8 @@ Evidence files must exist, be nonempty, and, for post-state verification, be new
 ## Registered actions and recipes
 
 The `ACTION_REGISTRY` in `scripts/harness.py` is the machine-readable source of truth. Unknown actions, recipes, or check bindings fail closed.
+
+All live registry actions inherit the permanent Jianying Assistant exclusion. It does not need to be repeated in each recipe row and cannot be overridden by a recipe.
 
 | Action key | Fixed recipe | Critical rule |
 |---|---|---|
@@ -122,6 +247,7 @@ Use the actual run values. Narration end, picture master, BGM master, and live t
 - The second identical failure fingerprint blocks the phase.
 - Three failures in one phase or six in the run block the harness.
 - Protected-state change, inconclusive mutation state, contract/plan drift, BGM provenance failure, or an unrecoverable action blocks immediately.
+- `forbidden_ui_route_unavailable` and `forbidden_ui_interaction` block immediately and never receive an automatic retry.
 - A block requires an explicit user decision. `unblock --authorized-by user` reopens the same logical action and does not erase history; a live action also requires a fresh observation/evidence proving the complete pre-state was restored.
 
 Do not respond to failure by inventing a drag direction, hotspot, coordinate, keyboard shortcut, menu sequence, or new mutation class. Calibrate an unknown UI route only in an isolated scratch timeline, at most twice, and delete the scratch timeline with verified count restoration before touching the authoritative timeline. Record a proven route as a reviewed registry change before production use.

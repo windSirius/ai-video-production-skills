@@ -12,6 +12,8 @@ Treat the pipeline as independently stoppable modules. Each active module must p
 ## Operating contract
 
 - Treat `scripts/harness.py` as the sole production-order authority after a run contract exists. Run `resume`, obey its one `next_action`, obtain a token with `prepare` → `begin`, then close that same action with `verify` or `fail`. Never mutate the live project outside an active token.
+- Treat every control labeled 「试试剪映助手」 or 「剪映助手」 as a permanent forbidden UI target in every phase. Never click, open, dismiss, focus, test, or use it. No token or recipe can authorize it. If it obscures a required control, use a verified route that does not target the assistant; if none exists, fail and block the live action.
+- Require a fresh non-assistant route preflight before every live token. Bind it to the action's registered route ID, action/recipe, pre-state, evidence hashes, and an exact sequence of strongly identified semantic targets with accessibility ancestry and an allowed window signature for each step; role-only, unrelated, or ad-hoc route claims are invalid. Every live UI operation then needs a fresh hit-test carrying current bounds, hit point, ancestry, per-step window signature, and visible forbidden regions plus one-use `authorize-ui-step` approval before execution and immediate `complete-ui-step` evidence afterward. Only the harness-managed trace may close `verify` or `fail`. Missing, unidentifiable, changed, extra, overlapping, self-authored, or assistant-targeted interaction evidence fails closed.
 - Do not hand-edit harness state, events, checkpoints, or harness-managed `H####` batch rows. Do not convert failed attempts into retrospective waivers.
 - If a tool response is lost after `begin`, inspect and resolve the pending action. Never repeat the mutation merely because its result is unknown.
 - Write a precise, machine-checkable success contract before any production mutation. Every success claim must name the objective check that proves it.
@@ -66,9 +68,9 @@ Read [references/ocr-caption-visual-workflow.md](references/ocr-caption-visual-w
 
 ## Work in bounded batches
 
-1. Use `scripts/harness.py prepare`; never append or close a harness batch row manually. State one assumption, exact scope, registered mutation and recipe, applicable unit limit, fresh pre-state, and a verifier that observes that mutation.
-2. Run `begin` with the issued token, then apply only that action. A token authorizes one mutation class, not an exploratory sequence.
-3. Run `verify` with a fresh post-state and evidence. Live mutations must use `harness_live_state_delta`; an unrelated file count or provenance check cannot prove a UI change. Offline checks must declare `observes_mutations` and `observed_targets` in `verification_plan.json`.
+1. Use `scripts/harness.py prepare`; never append or close a harness batch row manually. State one assumption, exact scope, registered mutation and recipe, applicable unit limit, fresh pre-state, a verifier that observes that mutation, and `--ui-route-preflight` for every live action.
+2. Run `begin` with the issued token. For every planned UI step, capture a current semantic hit-test, run `authorize-ui-step`, perform only that returned step, and immediately close it with `complete-ui-step` plus fresh evidence. A token authorizes one mutation class; a UI-step authorization authorizes exactly one target and cannot cover an exploratory sequence.
+3. Run `verify` with a fresh post-state, evidence, and the canonical harness-managed `--ui-interaction-trace`. Live mutations must use `harness_live_state_delta`; an unrelated file count, provenance check, or agent-authored “not clicked” trace cannot prove a UI route was safe. Offline checks must declare `observes_mutations` and `observed_targets` in `verification_plan.json`.
 4. On failure, undo immediately and prove restoration. Use `fail --rolled-back` or a failed `verify` with rollback evidence. The same batch receives at most one registered-recipe retry; a second identical failure, three phase failures, or six run failures blocks the harness.
 5. After two consecutive successful identical narration quick-add actions, promote the remaining enumerable items to `append_narration_loop` with a per-item media identity and cumulative-end manifest. Stop and undo the first mismatching item.
 6. Seal a completed phase with `harness.py advance`, passing every gate check and accepted artifact. Reuse an unchanged seal on resume.
@@ -163,7 +165,7 @@ Do not advance past a failed gate:
 - **Ending:** final frame is intentional and non-black; any requested breathing room is present.
 - **Live replacement:** Jianying shows the new stable filename, unchanged total timecode, protected caption/narration/BGM lanes, and saved QA screenshots at the opening, a representative middle point, and the final spoken line. Reopen the draft when persistence is uncertain.
 - **Contract:** every success criterion has a unique check ID present in `verification_plan.json`; contract-only validation passes before production edits.
-- **Harness:** no contract/plan/artifact drift, open token, pending repair, exhausted failure budget, or blocked state; every live mutation has fresh before/after evidence and an exact protected-state comparison.
+- **Harness:** no contract/plan/artifact drift, open token, pending repair, exhausted failure budget, or blocked state; every live mutation has fresh before/after evidence, an exact protected-state comparison, a verified non-assistant route, and a complete interaction trace with zero Jianying Assistant targets.
 - **Batch closure:** every harness batch has exact status `pass`; an optional pre-declared `waived` row requires explicit reason and authorization reference. Failed production attempts may not be washed into retrospective waivers.
 - **Delivery:** the final verified actions are timeline cleanup → canonical SRT export → opening/middle/ending evidence → save/reopen persistence check. Then `scripts/harness.py close RUN_DIR` executes the full objective plan and `validate_run.py`. Documentation alone cannot waive a required objective check.
 
