@@ -9,13 +9,21 @@ import json
 import os
 from pathlib import Path
 
+from harness import FINAL_ACTION_ORDER, fingerprint_matches, final_order_passed
 from run_objective_checks import SUPPORTED_TYPES, run_plan
 
 
 REQUIRED_MANIFEST_KEYS = ("title", "current_phase", "status", "artifacts")
-REQUIRED_ARTIFACT_KEYS = ("request_contract", "verification_plan", "batch_ledger", "edit_ledger", "acceptance_report")
+REQUIRED_ARTIFACT_KEYS = (
+    "request_contract",
+    "verification_plan",
+    "batch_ledger",
+    "edit_ledger",
+    "acceptance_report",
+    "harness_state",
+)
 MUSIC_SOURCE_ROOT = str(
-    Path(os.environ.get("AI_VIDEO_MUSIC_ROOT", Path.home() / "Music")).expanduser().resolve()
+    Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
 )
 
 
@@ -113,8 +121,34 @@ def validate_batch_ledger(path: Path, limits: dict, errors: list[str]) -> None:
     with path.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
     for index, row in enumerate(rows, start=2):
-        if not row.get("status", "").lower().startswith(("pass", "waived")):
+        status = row.get("status", "").lower()
+        harness_managed = row.get("batch_id", "").startswith("H")
+        if harness_managed and status not in {"pass", "waived"}:
+            errors.append(f"open harness batch row at line {index}: {row.get('assumption', '')}")
+        elif not harness_managed and not status.startswith(("pass", "waived")):
             errors.append(f"open batch row at line {index}: {row.get('assumption', '')}")
+        if status == "waived":
+            if not row.get("waiver_reason", "").strip():
+                errors.append(f"waived batch line {index} requires waiver_reason")
+            if not row.get("superseded_by", "").strip():
+                errors.append(f"waived batch line {index} requires superseded_by or user authorization reference")
+        if harness_managed and status == "pass":
+            result_value = row.get("evidence", "").split(";", 1)[0]
+            result_path = Path(result_value).expanduser()
+            if not result_path.is_absolute():
+                result_path = path.parent / result_path
+            if not result_path.is_file():
+                errors.append(f"harness batch line {index} missing verifier result: {result_path}")
+            else:
+                result = load_json(result_path, errors)
+                if result.get("pass") is not True:
+                    errors.append(f"harness batch line {index} verifier result is not pass")
+                if result.get("batch_id") != row.get("batch_id"):
+                    errors.append(f"harness batch line {index} verifier batch_id mismatch")
+                if result.get("mutation") != row.get("mutation"):
+                    errors.append(f"harness batch line {index} verifier mutation mismatch")
+                if result.get("ledger_check_id") != row.get("check_id"):
+                    errors.append(f"harness batch line {index} verifier/check binding mismatch")
         limit_key = row.get("unit_limit_key", "")
         if limit_key not in limits:
             errors.append(f"batch line {index} uses unknown unit_limit_key: {limit_key}")
@@ -126,6 +160,37 @@ def validate_batch_ledger(path: Path, limits: dict, errors: list[str]) -> None:
             continue
         if unit_count <= 0 or unit_count > int(limits[limit_key]):
             errors.append(f"batch line {index} unit_count={unit_count} exceeds {limit_key}={limits[limit_key]}")
+
+
+def validate_harness(root: Path, final: bool, errors: list[str]) -> dict:
+    state = load_json(root / "harness/state.json", errors)
+    if not state:
+        return {}
+    if state.get("schema_version") != 1:
+        errors.append(f"unsupported harness schema: {state.get('schema_version')}")
+    if state.get("run_dir") != str(root):
+        errors.append("harness run_dir does not match validation root")
+    if state.get("open_action"):
+        errors.append("harness has an open action")
+    lifecycle = state.get("lifecycle")
+    if lifecycle == "blocked":
+        errors.append(f"harness is blocked: {state.get('blocked', {}).get('reason', '')}")
+    for label in ("contract_fingerprint", "verification_plan_fingerprint"):
+        saved = state.get(label)
+        if not isinstance(saved, dict) or not fingerprint_matches(saved):
+            errors.append(f"harness fingerprint drift: {label}")
+    for phase, seal in state.get("sealed_phases", {}).items():
+        for artifact in seal.get("artifacts", []):
+            if not fingerprint_matches(artifact):
+                errors.append(f"sealed artifact drift: {phase}: {artifact.get('path')}")
+    if final:
+        if lifecycle not in {"closing", "complete"}:
+            errors.append(f"final validation requires harness lifecycle closing/complete, got {lifecycle}")
+        if not final_order_passed(state):
+            errors.append(f"harness final action order incomplete: {list(FINAL_ACTION_ORDER)}")
+    elif lifecycle not in {"ready", "complete"}:
+        errors.append(f"contract-only validation requires ready harness, got {lifecycle}")
+    return state
 
 
 def main() -> int:
@@ -143,6 +208,7 @@ def main() -> int:
         if key not in manifest:
             errors.append(f"manifest missing key: {key}")
     validate_contract(contract, plan, errors)
+    validate_harness(root, final=not args.contract_only, errors=errors)
 
     if args.contract_only:
         if errors:

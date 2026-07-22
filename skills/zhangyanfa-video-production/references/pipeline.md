@@ -17,14 +17,15 @@
 
 ## Resume rules
 
-1. Read the success contract before interpreting existing artifacts.
-2. Prefer the latest artifact that has both a file and passing objective-check evidence.
+1. Run `scripts/harness.py resume RUN_DIR` before interpreting artifacts. It returns exactly one legal next action; do not continue a remembered plan around it.
+2. Read the success contract and reuse valid phase seals. Inspect only unsealed or drifted inputs; prefer the latest artifact that has both a file and passing objective-check evidence.
 3. A recording-analysis handoff is a factual prewriting artifact, not an approved narration manuscript.
 4. Treat a file in a media bin as imported, not applied.
 5. Treat an offline render as generated, not a project update.
 6. Treat a changed timeline as updated only after a fresh screenshot/state check.
 7. If an earlier gate or batch fails, repair that phase before continuing; do not silently compensate downstream.
 8. Treat user-adjusted caption timing as immutable during picture work; never compensate for a weak match by moving captions.
+9. If resume reports an in-progress action after a crash or lost response, inspect and verify/fail it. Never repeat it blindly.
 
 ## Small-batch defaults
 
@@ -39,7 +40,7 @@
 - BGM automation: one rhetorical interval per batch.
 - Live Jianying: one mutation class, then fetch fresh UI state and run the linked check.
 
-Reduce these limits further after any failed assumption. Increase them only when the checks are deterministic, independent, and identical across units.
+Reduce these limits further after any failed assumption. Do not increase them ad hoc. The only production-loop promotion is the harness-registered narration quick-add loop after two consecutive identical successes and with per-item identity/end checks.
 
 ## Live-project recovery
 
@@ -49,6 +50,7 @@ Reduce these limits further after any failed assumption. Increase them only when
 - Prefer equal-duration `替换片段` for complete picture rebuilds.
 - Use a stable regular-file or hardlink source for `替换片段`; do not leave the saved draft dependent on a symlink or `/tmp`.
 - If a Jianying action behaves unexpectedly, undo immediately and verify the prior lane returned.
+- Record the unexpected state, rollback state, and fresh evidence through the same open harness token. A second identical failure blocks the phase; do not explore another coordinate or hotspot on the authoritative timeline.
 - After replacement or reopening the app, verify the visible filename, duration, captions, narration, BGM, opening hook, representative middle match, and ending before resuming.
 
 ## Progress communication

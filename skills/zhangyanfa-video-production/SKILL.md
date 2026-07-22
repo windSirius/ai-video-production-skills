@@ -11,6 +11,9 @@ Treat the pipeline as independently stoppable modules. Each active module must p
 
 ## Operating contract
 
+- Treat `scripts/harness.py` as the sole production-order authority after a run contract exists. Run `resume`, obey its one `next_action`, obtain a token with `prepare` → `begin`, then close that same action with `verify` or `fail`. Never mutate the live project outside an active token.
+- Do not hand-edit harness state, events, checkpoints, or harness-managed `H####` batch rows. Do not convert failed attempts into retrospective waivers.
+- If a tool response is lost after `begin`, inspect and resolve the pending action. Never repeat the mutation merely because its result is unknown.
 - Write a precise, machine-checkable success contract before any production mutation. Every success claim must name the objective check that proves it.
 - Keep each work unit small enough to test one assumption before it can compound. Never combine unrelated narration, caption, picture, audio, and live-timeline mutations in one batch.
 - Prefer automatic, objective verification. Use human visual or audio review only for irreducible aesthetic judgment, and never use it to replace an available file, timing, count, metadata, ASR, or duplication check.
@@ -28,7 +31,9 @@ Treat the pipeline as independently stoppable modules. Each active module must p
 - Never report final integrated LUFS without measuring an exported mix.
 - For a full picture rebuild, preserve captions, narration, and BGM by rendering one equal-duration, video-only master and applying it with Jianying `替换片段`. Never rebuild the live timeline by deleting or re-adding protected lanes.
 - Import live replacement media from a stable regular-file path, preferably a hardlink under `AI_VIDEO_MEDIA_ROOT`, defaulting to `$HOME/Movies/JianyingMedia`. Do not use a symlink or `/tmp` path as the lasting Jianying source.
-- Continue through non-blocking uncertainties using documented best judgment. Stop only when a missing reference transcript, target project, or rights decision would materially change the result.
+- Continue through non-blocking uncertainties using documented best judgment. Stop when the harness blocks, or when a missing reference transcript, target project, authority, or rights decision would materially change the result.
+
+Read [references/harness.md](references/harness.md) before initializing, resuming, or mutating any production run. Its transaction state, recipe registry, failure budget, caption transaction, frame clock, and final close order are mandatory. A harness block is a real stop condition, not a suggestion to improvise another UI route.
 
 ## Load the required modules
 
@@ -45,13 +50,13 @@ The active module's non-negotiable rules take precedence over shortcuts in this 
 
 ## Start or resume a run
 
-1. Inspect the workspace, mentioned files, open VoxCPM page, open Jianying draft, and existing output folders.
-2. Identify the newest verified artifact for each phase: recording probe, Vision frame index, mission-flow handoff, clean manuscript, segments, WAV manifest, SRT, match sheet, picture-only render, BGM manifest, ledger, and acceptance report.
+1. For an existing run, first run `python3 scripts/harness.py resume RUN_DIR`. If it reports a prepared, in-progress, repair, blocked, or complete state, obey that single result before inspecting anything else.
+2. Inspect only inputs and artifacts not already covered by a valid phase seal. Identify the newest artifact that has both a file and passing objective evidence; do not repeatedly inventory an unchanged workspace.
 3. Recursively inventory the configured BGM root before planning BGM. Ignore library databases and non-media files. Record the absolute resolved path for every candidate actually used.
 4. Define one concrete deliverable, explicit in-scope and out-of-scope boundaries, and measurable success criteria. Bind every criterion to a check ID. Keep the resolved BGM source root in the request contract.
-5. Run `scripts/init_run.py` with the title, objective, deliverable, criterion/check pairs, and out-of-scope boundaries. For an existing run, update its contract instead of creating duplicate folders.
+5. Run `scripts/init_run.py` with the title, objective, deliverable, criterion/check pairs, and out-of-scope boundaries. It creates the harness for a new run. For an existing run, update its contract deliberately instead of calling initialization as an implicit contract rewrite; with explicit user authority run `harness.py rebind` to record the change and invalidate prior phase seals.
 6. Complete `verification_plan.json`, including required check `bgm_sources_within_music`, then run `scripts/validate_run.py RUN_DIR --contract-only`. Do not mutate production state until this passes.
-7. Write resolved paths, `bgm_source_root`, and the current phase to `run_manifest.json`.
+7. Run `python3 scripts/harness.py resume RUN_DIR` again. Do not proceed until it returns one legal `prepare` action for the current phase.
 8. Create a recoverable project/picture/subtitle state before any replacement or deletion.
 
 Read [references/pipeline.md](references/pipeline.md) for phase inputs, gates, and recovery behavior.
@@ -61,12 +66,12 @@ Read [references/ocr-caption-visual-workflow.md](references/ocr-caption-visual-w
 
 ## Work in bounded batches
 
-1. Add one row to `batch_ledger.tsv` before each batch. State the single assumption, exact scope, one mutation class, applicable `unit_limit_key`, actual `unit_count`, verifier, and expected result.
-2. Respect the contract's unit limits. Default to one VoxCPM segment, one match row, one card, one BGM section, one live-timeline mutation, or at most ten caption rows per batch.
-3. Apply only that batch.
-4. Run its named objective check with `scripts/run_objective_checks.py RUN_DIR --check-id CHECK_ID`.
-5. Record measured output and evidence path. Mark the batch `pass` only when the check passes.
-6. On failure, stop that phase, repair or revise the assumption, and rerun the same check. Do not start the next batch while a required batch is open or failed.
+1. Use `scripts/harness.py prepare`; never append or close a harness batch row manually. State one assumption, exact scope, registered mutation and recipe, applicable unit limit, fresh pre-state, and a verifier that observes that mutation.
+2. Run `begin` with the issued token, then apply only that action. A token authorizes one mutation class, not an exploratory sequence.
+3. Run `verify` with a fresh post-state and evidence. Live mutations must use `harness_live_state_delta`; an unrelated file count or provenance check cannot prove a UI change. Offline checks must declare `observes_mutations` and `observed_targets` in `verification_plan.json`.
+4. On failure, undo immediately and prove restoration. Use `fail --rolled-back` or a failed `verify` with rollback evidence. The same batch receives at most one registered-recipe retry; a second identical failure, three phase failures, or six run failures blocks the harness.
+5. After two consecutive successful identical narration quick-add actions, promote the remaining enumerable items to `append_narration_loop` with a per-item media identity and cumulative-end manifest. Stop and undo the first mismatching item.
+6. Seal a completed phase with `harness.py advance`, passing every gate check and accepted artifact. Reuse an unchanged seal on resume.
 
 ## Execute the pipeline
 
@@ -158,8 +163,9 @@ Do not advance past a failed gate:
 - **Ending:** final frame is intentional and non-black; any requested breathing room is present.
 - **Live replacement:** Jianying shows the new stable filename, unchanged total timecode, protected caption/narration/BGM lanes, and saved QA screenshots at the opening, a representative middle point, and the final spoken line. Reopen the draft when persistence is uncertain.
 - **Contract:** every success criterion has a unique check ID present in `verification_plan.json`; contract-only validation passes before production edits.
-- **Batch closure:** every required batch is `pass` or explicitly `waived` with a reason; no failed assumption is carried into a later phase.
-- **Delivery:** `scripts/validate_run.py RUN_DIR` executes the objective plan and passes. Documentation alone cannot waive a required objective check.
+- **Harness:** no contract/plan/artifact drift, open token, pending repair, exhausted failure budget, or blocked state; every live mutation has fresh before/after evidence and an exact protected-state comparison.
+- **Batch closure:** every harness batch has exact status `pass`; an optional pre-declared `waived` row requires explicit reason and authorization reference. Failed production attempts may not be washed into retrospective waivers.
+- **Delivery:** the final verified actions are timeline cleanup → canonical SRT export → opening/middle/ending evidence → save/reopen persistence check. Then `scripts/harness.py close RUN_DIR` executes the full objective plan and `validate_run.py`. Documentation alone cannot waive a required objective check.
 
 Read [references/output-contract.md](references/output-contract.md) for required artifacts and reporting vocabulary.
 
@@ -173,5 +179,6 @@ Return a concise completion summary with:
 - narration, caption, visual-match, BGM, and ending QA facts;
 - unresolved human-audition or rights questions;
 - whether a final export was authorized and performed;
+- harness lifecycle, final close result, and any consumed failure budget;
 - clickable links to `run_manifest.json`, the edit ledger, acceptance report, latest picture render, BGM, SRT, and QA images.
 - When superseded renders are no longer referenced after live QA, move them to a dated Trash folder instead of deleting them permanently. Keep the current render, its render segments, and the stable Jianying media hardlink until user acceptance.

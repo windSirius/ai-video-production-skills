@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -20,16 +22,23 @@ SUPPORTED_TYPES = {
     "file_nonempty",
     "glob_count",
     "json_fields",
+    "json_assert",
     "text_contains",
     "tsv_status",
     "tsv_row_count_match",
     "mission_flow_coverage",
     "srt_no_adjacent_duplicates",
+    "srt_integrity",
     "bgm_sources_within_root",
     "media_probe",
+    "media_frame_contract",
+    "live_state_assert",
+    "image_evidence_set",
 }
+
+
 DEFAULT_MUSIC_SOURCE_ROOT = str(
-    Path(os.environ.get("AI_VIDEO_MUSIC_ROOT", Path.home() / "Music")).expanduser().resolve()
+    Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
 )
 
 
@@ -55,6 +64,81 @@ def parse_srt_texts(path: Path) -> list[str]:
         if len(lines) >= 3 and "-->" in lines[1]:
             texts.append(" ".join(lines[2:]).strip())
     return texts
+
+
+def srt_seconds(value: str) -> float:
+    match = re.fullmatch(r"(\d+):(\d{2}):(\d{2})[,.](\d{3})", value.strip())
+    if not match:
+        raise ValueError(f"invalid SRT time: {value}")
+    hours, minutes, seconds, milliseconds = (int(part) for part in match.groups())
+    return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000
+
+
+def parse_srt_entries(path: Path) -> list[dict[str, Any]]:
+    blocks = path.read_text(encoding="utf-8-sig").replace("\r\n", "\n").strip().split("\n\n")
+    entries = []
+    for block_number, block in enumerate(blocks, start=1):
+        lines = [line.rstrip() for line in block.splitlines() if line.strip()]
+        if len(lines) < 3 or "-->" not in lines[1]:
+            raise ValueError(f"invalid SRT block {block_number}")
+        try:
+            index = int(lines[0].strip())
+        except ValueError as exc:
+            raise ValueError(f"invalid SRT index at block {block_number}") from exc
+        start_text, end_text = (part.strip() for part in lines[1].split("-->", 1))
+        entries.append(
+            {
+                "index": index,
+                "start": srt_seconds(start_text),
+                "end": srt_seconds(end_text.split()[0]),
+                "text": " ".join(line.strip() for line in lines[2:]).strip(),
+            }
+        )
+    return entries
+
+
+def lexical_text(value: str) -> str:
+    return re.sub(r"\s+", "", value)
+
+
+def assert_json_values(data: dict[str, Any], assertions: list[dict[str, Any]]) -> list[str]:
+    failures = []
+    for assertion in assertions:
+        field = assertion.get("field")
+        op = assertion.get("op", "eq")
+        try:
+            actual = dotted_value(data, field)
+        except KeyError:
+            failures.append(f"{field}: missing")
+            continue
+        expected = assertion.get("value")
+        if op == "eq" and actual != expected:
+            failures.append(f"{field}={actual!r}, expected {expected!r}")
+        elif op == "ne" and actual == expected:
+            failures.append(f"{field} must not equal {expected!r}")
+        elif op == "gte" and not actual >= expected:
+            failures.append(f"{field}={actual!r}, expected >= {expected!r}")
+        elif op == "lte" and not actual <= expected:
+            failures.append(f"{field}={actual!r}, expected <= {expected!r}")
+        elif op == "nonempty" and actual in (None, "", [], {}):
+            failures.append(f"{field} is empty")
+        elif op not in {"eq", "ne", "gte", "lte", "nonempty"}:
+            failures.append(f"{field}: unsupported assertion op {op}")
+    return failures
+
+
+def ffprobe_json(path: Path, count_frames: bool = False) -> dict[str, Any]:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("ffprobe not found")
+    command = [ffprobe, "-v", "error"]
+    if count_frames:
+        command.append("-count_frames")
+    command.extend(["-show_streams", "-show_format", "-of", "json", str(path)])
+    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "ffprobe failed")
+    return json.loads(completed.stdout)
 
 
 def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
@@ -90,6 +174,27 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             except KeyError:
                 missing.append(field)
         return not missing, f"missing_or_empty={missing}", {"missing_or_empty": missing}
+
+    if check_type in {"json_assert", "live_state_assert"}:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return False, "JSON root must be an object", {}
+        missing = [field for field in check.get("required_fields", []) if field not in data]
+        failures = [f"{field}: missing" for field in missing]
+        failures.extend(assert_json_values(data, check.get("assertions", [])))
+        if check_type == "live_state_assert":
+            required_live = (
+                "draft_name",
+                "timeline_name",
+                "timeline_count",
+                "project_timecode",
+                "caption_count",
+                "narration_clip_count",
+                "picture_clip_count",
+                "bgm_clip_count",
+            )
+            failures.extend(f"{field}: missing" for field in required_live if field not in data)
+        return not failures, f"failures={failures}", {"failures": failures}
 
     if check_type == "text_contains":
         text = path.read_text(encoding="utf-8")
@@ -202,6 +307,58 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         duplicates = [index + 1 for index in range(1, len(texts)) if texts[index] == texts[index - 1]]
         return not duplicates, f"entries={len(texts)}, duplicate_entries={duplicates}", {"entries": len(texts), "duplicate_entries": duplicates}
 
+    if check_type == "srt_integrity":
+        entries = parse_srt_entries(path)
+        required_config = [field for field in ("expected_count", "reference_text_path", "expected_end_seconds") if field not in check]
+        if required_config:
+            return False, f"check config missing {required_config}", {"config_missing": required_config}
+        failures = []
+        expected_count = int(check["expected_count"])
+        if len(entries) != expected_count:
+            failures.append(f"count={len(entries)}, expected={expected_count}")
+        expected_indices = list(range(1, len(entries) + 1))
+        actual_indices = [entry["index"] for entry in entries]
+        if actual_indices != expected_indices:
+            failures.append("indices are not continuous from 1")
+        bad_ranges = [entry["index"] for entry in entries if entry["start"] < 0 or entry["end"] <= entry["start"]]
+        if bad_ranges:
+            failures.append(f"invalid_ranges={bad_ranges}")
+        overlaps = [entries[index]["index"] for index in range(1, len(entries)) if entries[index]["start"] < entries[index - 1]["end"]]
+        if overlaps and not check.get("allow_overlaps", False):
+            failures.append(f"overlaps={overlaps}")
+        duplicates = [entries[index]["index"] for index in range(1, len(entries)) if entries[index]["text"] == entries[index - 1]["text"]]
+        if duplicates:
+            failures.append(f"adjacent_duplicates={duplicates}")
+        ordered_text = "\n".join(entry["text"] for entry in entries)
+        ordered_sha = hashlib.sha256(ordered_text.encode("utf-8")).hexdigest()
+        expected_sha = check.get("expected_text_sha256")
+        if expected_sha and ordered_sha != expected_sha:
+            failures.append(f"ordered_text_sha256={ordered_sha}, expected={expected_sha}")
+        reference_path = resolve_path(root, check["reference_text_path"])
+        if not reference_path.is_file():
+            failures.append(f"missing reference_text_path={reference_path}")
+            reference_sha = ""
+        else:
+            reference_text = lexical_text(reference_path.read_text(encoding="utf-8-sig"))
+            actual_text = lexical_text("".join(entry["text"] for entry in entries))
+            reference_sha = hashlib.sha256(reference_text.encode("utf-8")).hexdigest()
+            if actual_text != reference_text:
+                failures.append("lexical coverage differs from reference_text_path")
+        final_end = entries[-1]["end"] if entries else 0.0
+        tolerance = float(check.get("end_tolerance_ms", 50)) / 1000
+        if abs(final_end - float(check["expected_end_seconds"])) > tolerance:
+            failures.append(f"final_end={final_end:.3f}, expected={float(check['expected_end_seconds']):.3f}±{tolerance:.3f}")
+        metrics = {
+            "entries": len(entries),
+            "final_end": final_end,
+            "ordered_text_sha256": ordered_sha,
+            "reference_lexical_sha256": reference_sha,
+            "overlaps": overlaps,
+            "adjacent_duplicates": duplicates,
+            "failures": failures,
+        }
+        return not failures, f"entries={len(entries)}, final_end={final_end:.3f}, failures={failures}", metrics
+
     if check_type == "bgm_sources_within_root":
         data = json.loads(path.read_text(encoding="utf-8"))
         sections_field = check.get("sections_field", "sections")
@@ -244,18 +401,71 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         }
         return not failures, f"sections={len(sections)}, failures={failures}", metrics
 
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        return False, "ffprobe not found", {}
-    completed = subprocess.run(
-        [ffprobe, "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        return False, completed.stderr.strip() or "ffprobe failed", {}
-    probe = json.loads(completed.stdout)
+    if check_type == "image_evidence_set":
+        matches = sorted(path.glob(check.get("pattern", "*.png")))
+        minimum = int(check.get("min_count", 3))
+        failures = []
+        if len(matches) < minimum:
+            failures.append(f"count={len(matches)}, expected>={minimum}")
+        digests = [hashlib.sha256(candidate.read_bytes()).hexdigest() for candidate in matches]
+        if len(digests) != len(set(digests)):
+            failures.append("evidence images are not distinct")
+        black = []
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            failures.append("ffmpeg not found for non-black evidence check")
+        else:
+            for candidate in matches:
+                completed = subprocess.run(
+                    [ffmpeg, "-hide_banner", "-loglevel", "info", "-i", str(candidate), "-vf", "signalstats,metadata=print", "-frames:v", "1", "-f", "null", "-"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                values = re.findall(r"lavfi\.signalstats\.YAVG=([0-9.]+)", completed.stderr + completed.stdout)
+                if not values or float(values[-1]) <= float(check.get("min_yavg", 4.0)):
+                    black.append(candidate.name)
+                if check.get("require_companion_json", True):
+                    companion = candidate.with_suffix(".json")
+                    if not companion.is_file():
+                        failures.append(f"missing companion live-state JSON: {companion.name}")
+                    else:
+                        live = json.loads(companion.read_text(encoding="utf-8"))
+                        for field in ("timecode", "draft_name", "timeline_name"):
+                            if not live.get(field):
+                                failures.append(f"{companion.name} missing {field}")
+        if black:
+            failures.append(f"black_or_unreadable={black}")
+        return not failures, f"images={len(matches)}, failures={failures}", {"images": [str(item) for item in matches], "failures": failures}
+
+    if check_type == "media_frame_contract":
+        contract_path = resolve_path(root, check["timing_contract_path"])
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        probe = ffprobe_json(path, count_frames=True)
+        streams = probe.get("streams", [])
+        video = next((stream for stream in streams if stream.get("codec_type") == "video"), {})
+        audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), {})
+        stream = video or audio
+        duration = float(probe.get("format", {}).get("duration", 0.0) or 0.0)
+        fps = float(Fraction(video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/1")) if video else float(contract["fps"])
+        frames = int(stream.get("nb_read_frames") or stream.get("nb_frames") or round(duration * fps))
+        expected_frames = int(contract["target_frame_count"])
+        tolerance_frames = int(check.get("frame_tolerance", 0))
+        failures = []
+        if abs(frames - expected_frames) > tolerance_frames:
+            failures.append(f"frames={frames}, expected={expected_frames}±{tolerance_frames}")
+        if video and abs(fps - float(contract["fps"])) > float(check.get("fps_tolerance", 0.02)):
+            failures.append(f"fps={fps}, expected={contract['fps']}")
+        if "audio_streams" in check:
+            audio_count = sum(item.get("codec_type") == "audio" for item in streams)
+            if audio_count != int(check["audio_streams"]):
+                failures.append(f"audio_streams={audio_count}, expected={check['audio_streams']}")
+        return not failures, "; ".join(failures) if failures else "frame contract matched", {"frames": frames, "fps": fps, "duration": duration, "failures": failures}
+
+    try:
+        probe = ffprobe_json(path)
+    except RuntimeError as exc:
+        return False, str(exc), {}
     streams = probe.get("streams", [])
     video = next((stream for stream in streams if stream.get("codec_type") == "video"), {})
     audio_count = sum(stream.get("codec_type") == "audio" for stream in streams)

@@ -8,7 +8,17 @@ Keep one run directory per video. Use stable filenames where practical:
 request_contract.json
 verification_plan.json
 run_manifest.json
+timing_contract.json
 batch_ledger.tsv
+harness/
+  state.json
+  events.jsonl
+  pending_action.json
+  lock
+  checkpoints/
+  checks/
+  phase_seals/
+  close_result.json
 recording_analysis/
   source_manifest.json
   media_probe.json
@@ -97,10 +107,18 @@ The master and chapter files may live under `RUN_DIR/audio/`, but they do not re
 Use:
 
 ```text
-batch_id phase assumption scope mutation unit_limit_key unit_count check_id expected measured status evidence
+batch_id phase assumption scope mutation unit_limit_key unit_count check_id expected measured status evidence waiver_reason superseded_by opened_at closed_at
 ```
 
-Require `unit_count` to be a positive integer no greater than the named limit in `request_contract.json`. Require `pass` or reasoned `waived` before proceeding. Never use `done` when the check was not executed.
+Let `scripts/harness.py` create and close `H####` rows. Require `unit_count` to be a positive integer no greater than the named limit in `request_contract.json`. Harness-managed status is an exact enum, not a prefix: only `pass` closes a required action. An optional action may be `waived` only before execution and must carry a reason plus user-authorization reference. Never use `done`, `waived:superseded`, or a retrospective mass waiver when the check was not executed.
+
+## Harness minimum
+
+- `state.json` contains one run ID, revision, lifecycle, current phase, frozen contract/plan fingerprints, at most one open action, failure budgets, phase seals, and the final action history;
+- `events.jsonl` is append-only and records preparation, begin, pass/fail, recovery, phase advance, and close events;
+- each live action has immutable before, failed/post, and rollback checkpoints when applicable;
+- each verifier result records batch, mutation, check, observed target, fresh evidence hashes, metrics, and pass state;
+- do not store the complete history only in `state.json`, and do not edit harness files manually.
 
 ## Reporting vocabulary
 
@@ -123,4 +141,5 @@ Report:
 - thesis/evidence-card time ranges and functions;
 - QA results, inherited issues, low-confidence visual matches, and human-audition limits;
 - opening hook, representative middle match, final spoken-line image, protected-lane preservation, draft-save state, and persistence check when required;
+- harness lifecycle, final close result, failure-budget usage, and any explicit user unblock;
 - links to the latest assets and reproducible scripts.
