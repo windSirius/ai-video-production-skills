@@ -56,8 +56,9 @@ plan_id old_rows source_span planned_text visual_lines timing_strategy reason st
 
 ## Punctuation
 
-- Remove terminal `。`, `：`, and `；` when the user's video style excludes them.
-- Remove trailing commas used only as sentence-continuation artifacts.
+- For this user's default house style, remove terminal `，。；：,.;:` from every caption.
+- Treat trailing `」』”’）》〉）】` as closing marks rather than the effective ending: remove the forbidden punctuation immediately before them while preserving the closing mark. For example, change `「一句话；」` to `「一句话」`.
+- Preserve terminal `？！?!` unless the user explicitly overrides the style.
 - Add internal commas when they represent a real spoken pause, contrast, apposition, or clause boundary.
 - Preserve internal punctuation that carries rhythm or meaning, including em dashes, ellipses, and question marks in dialogue.
 - Do not remove Chinese book-title or quote marks.
@@ -117,6 +118,6 @@ Preferred
 - Count adjacent exact duplicates; require zero.
 - Require zero empty or punctuation-only entries.
 - Check unmatched `「」`, `“”`, and `《》` across the sequence.
-- Check for terminal punctuation forbidden by the chosen style.
+- Require zero captions ending in `，。；：,.;:`, including immediately before trailing `」』”’）》〉）】`.
 - Inspect the first, middle, and last captions plus every caption longer than 24 visible characters.
 - Confirm content still covers the narration exactly once in order.

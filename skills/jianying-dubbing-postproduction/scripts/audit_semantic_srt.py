@@ -15,6 +15,8 @@ from pathlib import Path
 TIMING_RE = re.compile(r"^(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})$")
 PUNCT_ONLY_RE = re.compile(r"^[\s，。！？；：、,.!?;:…—\-~～·「」『』“”‘’《》〈〉（）()【】\[\]]+$")
 QUOTE_PAIRS = (("「", "」"), ("『", "』"), ("“", "”"), ("‘", "’"), ("《", "》"), ("〈", "〉"))
+DEFAULT_FORBIDDEN_TERMINAL_PUNCTUATION = "，。；：,.;:"
+DEFAULT_TRAILING_CLOSING_MARKS = "」』”’）》〉）】"
 
 
 @dataclass
@@ -66,6 +68,20 @@ def visible_chars(text: str) -> int:
     return sum(not char.isspace() for char in text)
 
 
+def find_forbidden_terminal_punctuation(
+    text: str,
+    forbidden_punctuation: str = DEFAULT_FORBIDDEN_TERMINAL_PUNCTUATION,
+    trailing_closing_marks: str = DEFAULT_TRAILING_CLOSING_MARKS,
+) -> str | None:
+    candidate = text.rstrip()
+    closing_marks = set(trailing_closing_marks)
+    while candidate and candidate[-1] in closing_marks:
+        candidate = candidate[:-1].rstrip()
+    if candidate and candidate[-1] in set(forbidden_punctuation):
+        return candidate[-1]
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("raw_srt", type=Path, help="Unedited Manuscript Match SRT")
@@ -79,6 +95,21 @@ def main() -> int:
     )
     parser.add_argument("--max-visible-chars", type=int, default=24)
     parser.add_argument("--max-cps", type=float, default=12.0, help="Warning threshold for visible characters per second")
+    parser.add_argument(
+        "--forbidden-terminal-punctuation",
+        default=DEFAULT_FORBIDDEN_TERMINAL_PUNCTUATION,
+        help="Terminal punctuation rejected by the user's house style",
+    )
+    parser.add_argument(
+        "--terminal-closing-marks",
+        default=DEFAULT_TRAILING_CLOSING_MARKS,
+        help="Closing marks ignored while locating the effective caption ending",
+    )
+    parser.add_argument(
+        "--allow-forbidden-terminal-punctuation",
+        action="store_true",
+        help="Explicitly override the house-style terminal-punctuation gate",
+    )
     args = parser.parse_args()
 
     raw = parse_srt(args.raw_srt)
@@ -112,6 +143,23 @@ def main() -> int:
         index for index, caption in enumerate(final, start=1)
         if not caption.text or PUNCT_ONLY_RE.fullmatch(caption.text)
     ]
+    forbidden_terminal_punctuation = []
+    if not args.allow_forbidden_terminal_punctuation:
+        forbidden_terminal_punctuation = [
+            {
+                "entry": index,
+                "punctuation": punctuation,
+                "text": caption.text,
+            }
+            for index, caption in enumerate(final, start=1)
+            if (
+                punctuation := find_forbidden_terminal_punctuation(
+                    caption.text,
+                    args.forbidden_terminal_punctuation,
+                    args.terminal_closing_marks,
+                )
+            )
+        ]
     long_entries = [
         {"entry": index, "visible_chars": visible_chars(caption.text)}
         for index, caption in enumerate(final, start=1)
@@ -142,6 +190,7 @@ def main() -> int:
         "coverage_mismatch": raw_text != final_text,
         "adjacent_duplicate_entries": duplicates,
         "punctuation_only_entries": punctuation_only,
+        "forbidden_terminal_punctuation_entries": forbidden_terminal_punctuation,
         "invalid_time_order_entries": invalid_order,
         "quote_imbalances": quote_imbalances,
     }
@@ -155,6 +204,12 @@ def main() -> int:
         "normalized_characters_raw": len(raw_text),
         "normalized_characters_final": len(final_text),
         "coverage_mode": args.coverage_mode,
+        "terminal_punctuation_policy": {
+            "enabled": not args.allow_forbidden_terminal_punctuation,
+            "forbidden": args.forbidden_terminal_punctuation,
+            "trailing_closing_marks": args.terminal_closing_marks,
+            "preserved": "？！?!",
+        },
         "coverage_differences": coverage_differences,
         "failures": failures,
         "warnings": {

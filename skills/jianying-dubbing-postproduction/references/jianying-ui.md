@@ -2,7 +2,7 @@
 
 ## App targeting
 
-- Prefer the running app selected by `AI_VIDEO_EDITOR_APP` when set. Otherwise resolve the active Jianying/CapCut application by display name or bundle identifier and verify the target window before acting.
+- Prefer the running app at `/Applications/VideoFusion-macOS.app` when `剪映专业版` or `com.lemon.lvpro` is ambiguous.
 - Re-query after every action that changes panels, selection, or list contents.
 - If Computer Use reports that the user changed the app, stop using current indexes and capture fresh state.
 - Treat 「试试剪映助手」 and 「剪映助手」 as forbidden targets. Detect their labels, ancestor chain, and bounds only to avoid them; never click, open, dismiss, focus, test, or use them. If they block a required control, take a verified non-assistant route or stop. Under the production harness, every UI step also requires a fresh hit-test and one-use pre-click authorization.
@@ -37,9 +37,12 @@
 ## SRT export and import
 
 - The export dialog can expose `字幕导出` below video and audio options. Scroll inside the dialog to reach it.
-- Disable video export when only an SRT backup is needed.
+- For a subtitle-only backup, disable `视频导出` and `音频导出`, enable `字幕导出`, select `SRT`, and confirm `Unicode / UTF-8`.
 - Verify the exported file exists and parse it before changing the caption track.
 - `文件 > 导入` may be media-only in Jianying builds. A successful file picker selection does not prove an SRT became a caption track.
+- Use the verified route `文本 > 新建文本 > 导入本地字幕`. The file picker recognizes valid `.srt` files as `Subrip Subtitle File`.
+- After confirmation, verify the filename appears under `本地字幕` as a material card. The card's existence does not place captions on the timeline.
+- Drag the exact local-subtitle card into the timeline, then verify a second caption track and the imported caption count before deleting anything.
 - Do not delete the original caption track until imported caption clips are visibly present and counted.
 
 ## Safe rollback

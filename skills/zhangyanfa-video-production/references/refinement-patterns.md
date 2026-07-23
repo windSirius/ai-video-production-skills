@@ -20,7 +20,7 @@ Apply these patterns only when the named risk exists. They are defaults, not man
 
 ## BGM lacks rhetorical breathing
 
-- Start only from already verified sources in the configured BGM root; do not replace a weak section with footage audio, a download, or generated music.
+- Start only from already verified sources in the configured BGM root (`AI_VIDEO_MUSIC_ROOT`, default `$HOME/Music`); do not replace a weak section with footage audio, a download, or generated music.
 - Start near the house baseline of `-20 dB` in Jianying with loudness normalization enabled.
 - Dip the music under a reversal or decisive thesis rather than changing tracks for one sentence.
 - Permit a restrained 1–1.5 dB lift for a recovered signal, reply, reunion, or hopeful turn.

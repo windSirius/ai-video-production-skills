@@ -82,6 +82,7 @@ def main() -> int:
                 "match_rows_per_batch": 1,
                 "cards_per_batch": 1,
                 "bgm_sections_per_batch": 1,
+                "offline_artifacts_per_batch": 1,
                 "live_timeline_mutations_per_batch": 1,
                 "narration_loop_items_per_batch": 50,
             },
@@ -135,6 +136,39 @@ def main() -> int:
                     "required": True,
                     "observes_mutations": ["offline.artifact"],
                     "observed_targets": ["audio/bgm_manifest.json", "sections[].source"],
+                },
+                {
+                    "id": "timing_contract_live_clock",
+                    "type": "json_assert",
+                    "path": "timing_contract.json",
+                    "required_fields": [
+                        "fps",
+                        "target_frame_count",
+                        "target_seconds",
+                        "target_timecode",
+                        "clock_source",
+                        "source_live_observation",
+                    ],
+                    "assertions": [
+                        {
+                            "field": "clock_source",
+                            "op": "eq",
+                            "value": "verified_live_jianying_narration_end",
+                        },
+                        {"field": "target_frame_count", "op": "gte", "value": 1},
+                    ],
+                    "observes_mutations": ["offline.artifact"],
+                    "observed_targets": [
+                        "timing_contract.json",
+                        "source_live_observation.sha256",
+                    ],
+                },
+                {
+                    "id": "caption_raw_backup_exists",
+                    "type": "file_nonempty",
+                    "path": "captions/captions_matched_raw.srt",
+                    "observes_mutations": ["live.caption.export_backup"],
+                    "observed_targets": ["captions/captions_matched_raw.srt"],
                 },
                 {
                     "id": "acceptance_report_exists",

@@ -123,7 +123,7 @@ def validate_batch_ledger(path: Path, limits: dict, errors: list[str]) -> None:
     for index, row in enumerate(rows, start=2):
         status = row.get("status", "").lower()
         harness_managed = row.get("batch_id", "").startswith("H")
-        if harness_managed and status not in {"pass", "waived"}:
+        if harness_managed and status not in {"pass", "waived", "cancelled_no_mutation"}:
             errors.append(f"open harness batch row at line {index}: {row.get('assumption', '')}")
         elif not harness_managed and not status.startswith(("pass", "waived")):
             errors.append(f"open batch row at line {index}: {row.get('assumption', '')}")
@@ -132,7 +132,10 @@ def validate_batch_ledger(path: Path, limits: dict, errors: list[str]) -> None:
                 errors.append(f"waived batch line {index} requires waiver_reason")
             if not row.get("superseded_by", "").strip():
                 errors.append(f"waived batch line {index} requires superseded_by or user authorization reference")
-        if harness_managed and status == "pass":
+        if status == "cancelled_no_mutation":
+            if not row.get("superseded_by", "").startswith("user-authorized:"):
+                errors.append(f"cancelled batch line {index} requires explicit user authorization")
+        if harness_managed and status in {"pass", "cancelled_no_mutation"}:
             result_value = row.get("evidence", "").split(";", 1)[0]
             result_path = Path(result_value).expanduser()
             if not result_path.is_absolute():
@@ -149,6 +152,15 @@ def validate_batch_ledger(path: Path, limits: dict, errors: list[str]) -> None:
                     errors.append(f"harness batch line {index} verifier mutation mismatch")
                 if result.get("ledger_check_id") != row.get("check_id"):
                     errors.append(f"harness batch line {index} verifier/check binding mismatch")
+                if status == "cancelled_no_mutation":
+                    if result.get("status") != "cancelled_no_mutation":
+                        errors.append(f"cancelled batch line {index} verifier status mismatch")
+                    if result.get("agent_ui_steps_authorized") != 0:
+                        errors.append(f"cancelled batch line {index} authorized an agent UI step")
+                    if result.get("agent_ui_steps_completed") != 0:
+                        errors.append(f"cancelled batch line {index} completed an agent UI step")
+                    if result.get("claims_user_mutations") is not False:
+                        errors.append(f"cancelled batch line {index} must not claim user mutations")
         limit_key = row.get("unit_limit_key", "")
         if limit_key not in limits:
             errors.append(f"batch line {index} uses unknown unit_limit_key: {limit_key}")
