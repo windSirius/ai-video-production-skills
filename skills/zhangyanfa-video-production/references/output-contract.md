@@ -82,6 +82,18 @@ Existing project-specific names may be retained; register their paths in `run_ma
 
 Never store private credentials or browser session tokens in the manifest.
 
+## Timing contract minimum
+
+Create `timing_contract.json` only after every narration WAV is visible in order on the authoritative Jianying timeline. Generate it from a verified live-state observation with `scripts/freeze_live_timing_contract.py`. Record:
+
+- `fps`, `target_frame_count`, `target_seconds`, and `target_timecode`;
+- `clock_source=verified_live_jianying_narration_end`;
+- the source live-observation path and SHA-256, including an independently measured `narration_end_timecode`;
+- the verified narration clip count;
+- source-WAV duration sum and caption final end as diagnostic values when known.
+
+Do not use a simple sum of WAV durations or the overall project duration as the full-span frame authority. Jianying may quantize each imported clip separately, and picture/BGM media may extend the project beyond narration. If caption cues end before narration, record the remainder as `caption_tail_hold_frames`; if they extend more than one frame beyond narration, reject the contract. Replacing an existing timing contract requires a recoverable timestamped backup.
+
 ## BGM manifest minimum
 
 Write `audio/bgm_manifest.json` before importing BGM. Require a nonempty `sections` array. Each section must contain:

@@ -8,10 +8,10 @@
 | Recording analysis | complete game-mission recording | `recording_analysis/vision_frame_index.tsv`, `mission_flow.tsv`, Claude Markdown/JSON handoff | full-duration coverage, evidence links, and unresolved-gap audit pass |
 | Manuscript | source MD/TXT/PDF/DOCX | `clean_script.md`, `segments.md` | ordered coverage exactly once |
 | VoxCPM | reference WAV, exact transcript, segments | numbered WAVs, WAV manifest, QA | every clip valid; ASR coverage plausible |
-| Caption spine | WAVs, clean script, open draft | sequential narration, captions, SRT backup | start/end coverage and zero adjacent duplicates |
+| Caption spine | WAVs, clean script, open draft | sequential narration, live-derived `timing_contract.json`, captions, SRT backup | ordered WAV count, measured live integer-frame end, start/end coverage, and zero adjacent duplicates |
 | Visual retrieval | immutable user-adjusted SRT, source footage, optional reference video | coarse/dense visual index, OCR index, contact sheets, audited three-candidate match sheet | every caption covered exactly once; OCR/visual/reuse audit passes |
 | Picture rebuild | audited match sheet | equal-duration picture-only render | metadata, gaps, and duration verified |
-| BGM selection | recursive configured-BGM-root inventory and stable narration | `audio/bgm_manifest.json`, chapter derivatives | every source resolves inside the configured root; provenance check passes |
+| BGM selection | recursive configured BGM-root inventory (`AI_VIDEO_MUSIC_ROOT`, default `$HOME/Music`) and stable narration | `audio/bgm_manifest.json`, chapter derivatives | every source resolves inside the configured root; provenance check passes |
 | Style | stable picture, narration, and verified Music-folder BGM | styled draft, cards, chapter BGM | visible hook/evidence/turn/thesis checks pass |
 | Acceptance | current draft and feedback | edit ledger, QA artifacts, report | every P0/P1 row has evidence-backed status |
 

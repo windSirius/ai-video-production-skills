@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import unicodedata
 from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
@@ -35,8 +36,8 @@ SUPPORTED_TYPES = {
     "live_state_assert",
     "image_evidence_set",
 }
-
-
+CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION = ("，", "。", "：", "；", ",", ".", ":", ";")
+CAPTION_TRAILING_CLOSING_MARKS = ("」", "』", "”", "’", "》", "〉", "）", "】")
 DEFAULT_MUSIC_SOURCE_ROOT = str(
     Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
 )
@@ -98,7 +99,20 @@ def parse_srt_entries(path: Path) -> list[dict[str, Any]]:
 
 
 def lexical_text(value: str) -> str:
-    return re.sub(r"\s+", "", value)
+    return "".join(
+        char
+        for char in value
+        if not char.isspace() and not unicodedata.category(char).startswith("P")
+    )
+
+
+def find_forbidden_terminal_punctuation(text: str) -> str | None:
+    candidate = text.rstrip()
+    while candidate and candidate[-1] in CAPTION_TRAILING_CLOSING_MARKS:
+        candidate = candidate[:-1].rstrip()
+    if candidate and candidate[-1] in CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION:
+        return candidate[-1]
+    return None
 
 
 def assert_json_values(data: dict[str, Any], assertions: list[dict[str, Any]]) -> list[str]:
@@ -309,10 +323,29 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
 
     if check_type == "srt_integrity":
         entries = parse_srt_entries(path)
-        required_config = [field for field in ("expected_count", "reference_text_path", "expected_end_seconds") if field not in check]
+        required_config = [
+            field
+            for field in (
+                "expected_count",
+                "reference_text_path",
+                "expected_end_seconds",
+                "forbidden_terminal_punctuation",
+                "terminal_closing_marks",
+            )
+            if field not in check
+        ]
         if required_config:
             return False, f"check config missing {required_config}", {"config_missing": required_config}
         failures = []
+        expected_forbidden = list(CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION)
+        expected_closing_marks = list(CAPTION_TRAILING_CLOSING_MARKS)
+        if check["forbidden_terminal_punctuation"] != expected_forbidden:
+            failures.append(
+                "forbidden_terminal_punctuation must equal "
+                f"{expected_forbidden!r}"
+            )
+        if check["terminal_closing_marks"] != expected_closing_marks:
+            failures.append(f"terminal_closing_marks must equal {expected_closing_marks!r}")
         expected_count = int(check["expected_count"])
         if len(entries) != expected_count:
             failures.append(f"count={len(entries)}, expected={expected_count}")
@@ -329,6 +362,20 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         duplicates = [entries[index]["index"] for index in range(1, len(entries)) if entries[index]["text"] == entries[index - 1]["text"]]
         if duplicates:
             failures.append(f"adjacent_duplicates={duplicates}")
+        forbidden_terminal_entries = [
+            {
+                "entry": entry["index"],
+                "punctuation": punctuation,
+                "text": entry["text"],
+            }
+            for entry in entries
+            if (punctuation := find_forbidden_terminal_punctuation(entry["text"]))
+        ]
+        if forbidden_terminal_entries:
+            failures.append(
+                "forbidden_terminal_punctuation_entries="
+                f"{[entry['entry'] for entry in forbidden_terminal_entries]}"
+            )
         ordered_text = "\n".join(entry["text"] for entry in entries)
         ordered_sha = hashlib.sha256(ordered_text.encode("utf-8")).hexdigest()
         expected_sha = check.get("expected_text_sha256")
@@ -355,6 +402,12 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             "reference_lexical_sha256": reference_sha,
             "overlaps": overlaps,
             "adjacent_duplicates": duplicates,
+            "forbidden_terminal_punctuation_entries": forbidden_terminal_entries,
+            "terminal_punctuation_policy": {
+                "forbidden": expected_forbidden,
+                "trailing_closing_marks": expected_closing_marks,
+                "preserved": ["？", "！", "?", "!"],
+            },
             "failures": failures,
         }
         return not failures, f"entries={len(entries)}, final_end={final_end:.3f}, failures={failures}", metrics

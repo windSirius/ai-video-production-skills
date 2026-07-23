@@ -14,13 +14,31 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from run_objective_checks import run_check
-from harness import ACTION_REGISTRY, SCHEMA_VERSION, UI_ROUTE_SCHEMA_VERSION, fingerprint, sha256_file, utc_now
+from run_objective_checks import (
+    CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION,
+    CAPTION_TRAILING_CLOSING_MARKS,
+    run_check,
+)
+from validate_run import validate_batch_ledger
+from harness import (
+    ACTION_REGISTRY,
+    SCHEMA_VERSION,
+    UI_HIT_TEST_MAX_AGE_SECONDS,
+    UI_ROUTE_SCHEMA_VERSION,
+    compare_observations,
+    fingerprint,
+    sha256_file,
+    utc_now,
+    validate_caption_terminal_punctuation_policy,
+    validate_caption_transaction,
+    validate_required_ui_route_checkpoints,
+)
 
 
 INIT = SCRIPT_DIR / "init_run.py"
 HARNESS = SCRIPT_DIR / "harness.py"
 VALIDATE = SCRIPT_DIR / "validate_run.py"
+FREEZE_TIMING = SCRIPT_DIR / "freeze_live_timing_contract.py"
 
 
 def observation(draft_name: str = "测试草稿") -> dict:
@@ -499,6 +517,382 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(assistant["policy"], "never_interact")
         self.assertIn("试试剪映助手", assistant["labels"])
         self.assertIn("剪映助手", assistant["labels"])
+
+    def test_first_narration_clip_may_create_exactly_one_track(self) -> None:
+        before = observation()
+        before["narration_track_count"] = 0
+        before["narration_clip_count"] = 0
+        after = dict(before)
+        after["narration_track_count"] = 1
+        after["narration_clip_count"] = 1
+        failures = compare_observations(
+            before,
+            after,
+            ACTION_REGISTRY["append_narration_clip"]["expect"],
+        )
+        self.assertEqual(failures, [])
+
+        duplicate_track = dict(after)
+        duplicate_track["narration_track_count"] = 2
+        failures = compare_observations(
+            before,
+            duplicate_track,
+            ACTION_REGISTRY["append_narration_clip"]["expect"],
+        )
+        self.assertTrue(any("narration_track_count" in failure for failure in failures))
+
+    def test_stale_hit_test_is_retryable_and_does_not_block(self) -> None:
+        self.assertGreaterEqual(UI_HIT_TEST_MAX_AGE_SECONDS, 30)
+        token = self.prepare_rename()
+        begun = self.run_command(HARNESS, "begin", self.root, "--token", token)
+        self.assertEqual(begun.returncode, 0, begun.stderr)
+        state = json.loads((self.root / "harness/state.json").read_text(encoding="utf-8"))
+        planned = state["open_action"]["ui_route_preflight"]["planned_step_inputs"][0]
+        stale_step = self.materialize_step(planned)
+        stale_hit_test = self.write_json(
+            "stale-hit-test.json",
+            {
+                "schema_version": UI_ROUTE_SCHEMA_VERSION,
+                "observed_at": "2000-01-01T00:00:00+00:00",
+                "window_signature": stale_step["window_signature"],
+                "step": stale_step,
+                "visible_forbidden_regions": [
+                    {
+                        "label": "试试剪映助手",
+                        "bounds": {"x": 1600, "y": 900, "width": 260, "height": 80},
+                    }
+                ],
+            },
+        )
+        rejected = self.run_command(
+            HARNESS,
+            "authorize-ui-step",
+            self.root,
+            "--token",
+            token,
+            "--hit-test",
+            stale_hit_test,
+        )
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("ui_evidence_stale", rejected.stderr)
+        state = json.loads((self.root / "harness/state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["lifecycle"], "in_action")
+        self.assertIsNone(state["blocked"])
+        self.assertEqual(state["open_action"]["ui_execution"]["next_sequence"], 1)
+        self.assertIsNone(state["open_action"]["ui_execution"]["pending_authorization"])
+
+    def test_user_can_adopt_manual_baseline_only_before_agent_ui_steps(self) -> None:
+        token = self.prepare_rename()
+        begun = self.run_command(HARNESS, "begin", self.root, "--token", token)
+        self.assertEqual(begun.returncode, 0, begun.stderr)
+        manual = observation("用户手工推进后的草稿")
+        manual["narration_clip_count"] = 22
+        manual["caption_count"] = None
+        manual["unresolved_measurements"] = ["caption_count"]
+        manual_path = self.write_json("manual-live-baseline.json", manual)
+        manual_evidence = self.evidence("manual-live-baseline.png")
+        adopted = self.run_command(
+            HARNESS,
+            "adopt-live-baseline",
+            self.root,
+            "--authorized-by",
+            "user",
+            "--reason",
+            "用户已手工推进当前剪映工程",
+            "--observation",
+            manual_path,
+            "--evidence",
+            manual_evidence,
+        )
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+        state = json.loads((self.root / "harness/state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["lifecycle"], "ready")
+        self.assertIsNone(state["open_action"])
+        self.assertIsNone(state["blocked"])
+        self.assertEqual(
+            state["adopted_live_baseline"]["checkpoint"]["observation_sha256"],
+            sha256_file(
+                Path(state["adopted_live_baseline"]["checkpoint"]["observation"])
+            ),
+        )
+        ledger = (self.root / "batch_ledger.tsv").read_text(encoding="utf-8")
+        self.assertIn("\tcancelled_no_mutation\t", ledger)
+        contract = json.loads((self.root / "request_contract.json").read_text(encoding="utf-8"))
+        ledger_errors: list[str] = []
+        validate_batch_ledger(
+            self.root / "batch_ledger.tsv",
+            contract["unit_limits"],
+            ledger_errors,
+        )
+        self.assertEqual(ledger_errors, [])
+
+    def test_caption_backup_export_late_binds_unknown_caption_count(self) -> None:
+        pre_observation = observation()
+        pre_observation["caption_count"] = None
+        pre_observation["unresolved_measurements"] = ["caption_count"]
+        pre = self.write_json("caption-backup-pre.json", pre_observation)
+        pre_evidence = self.evidence("caption-backup-pre.png")
+        steps = [
+            {
+                "sequence": 1,
+                "action": "press",
+                "target": self.ui_target(
+                    name="打开导出",
+                    identifier="open-export",
+                    visible_text="导出",
+                ),
+            },
+            {
+                "sequence": 2,
+                "action": "press",
+                "target": self.ui_target(
+                    name="仅导出当前字幕备份",
+                    identifier="caption-backup-export",
+                    visible_text="字幕导出",
+                ),
+            },
+            {
+                "sequence": 3,
+                "action": "confirm",
+                "target": self.ui_target(
+                    name="确认导出",
+                    identifier="confirm-caption-backup-export",
+                    visible_text="确认导出",
+                ),
+            },
+        ]
+        preflight = self.route_preflight(
+            pre,
+            [pre_evidence],
+            "caption-backup-route.json",
+            action_key="caption_backup_export",
+            recipe_id="jianying.caption-only-export-backup.v2",
+            steps=steps,
+        )
+        prepared = self.run_command(
+            HARNESS,
+            "prepare",
+            self.root,
+            "--action-key",
+            "caption_backup_export",
+            "--recipe-id",
+            "jianying.caption-only-export-backup.v2",
+            "--assumption",
+            "可只导出当前字幕",
+            "--scope",
+            "原始字幕备份",
+            "--unit-limit-key",
+            "live_timeline_mutations_per_batch",
+            "--unit-count",
+            1,
+            "--check-id",
+            "harness_live_state_delta",
+            "--objective-check-id",
+            "caption_raw_backup_exists",
+            "--observation",
+            pre,
+            "--evidence",
+            pre_evidence,
+            "--ui-route-preflight",
+            preflight,
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        state = json.loads((self.root / "harness/state.json").read_text(encoding="utf-8"))
+        token = state["open_action"]["token"]
+        self.assertEqual(self.run_command(HARNESS, "begin", self.root, "--token", token).returncode, 0)
+        trace = self.interaction_trace(token, "caption-backup-trace.json")
+
+        backup = self.root / "captions/captions_matched_raw.srt"
+        backup.write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\n测试字幕\n",
+            encoding="utf-8",
+        )
+        post_observation = observation()
+        post_observation["caption_count"] = 10
+        post = self.write_json("caption-backup-post.json", post_observation)
+        post_evidence = self.evidence("caption-backup-post.png")
+        verified = self.run_command(
+            HARNESS,
+            "verify",
+            self.root,
+            "--token",
+            token,
+            "--observation",
+            post,
+            "--evidence",
+            post_evidence,
+            "--ui-interaction-trace",
+            trace,
+            "--measured",
+            "原始字幕已导出，字幕数量完成迟绑定",
+        )
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        state = json.loads((self.root / "harness/state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["lifecycle"], "ready")
+
+    def test_manual_baseline_adoption_rejects_completed_agent_ui_step(self) -> None:
+        token = self.prepare_rename()
+        begun = self.run_command(HARNESS, "begin", self.root, "--token", token)
+        self.assertEqual(begun.returncode, 0, begun.stderr)
+        self.interaction_trace(token, "completed-before-adoption.json")
+        manual_path = self.write_json("late-manual-live-baseline.json", observation("用户后续修改"))
+        manual_evidence = self.evidence("late-manual-live-baseline.png")
+        rejected = self.run_command(
+            HARNESS,
+            "adopt-live-baseline",
+            self.root,
+            "--authorized-by",
+            "user",
+            "--reason",
+            "尝试在代理操作后接管",
+            "--observation",
+            manual_path,
+            "--evidence",
+            manual_evidence,
+        )
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("after an agent-authorized UI step", rejected.stderr)
+        state = json.loads((self.root / "harness/state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["lifecycle"], "in_action")
+        self.assertIsNotNone(state["open_action"])
+
+    def test_ready_run_can_record_user_authored_live_baseline(self) -> None:
+        manual_path = self.write_json("ready-manual-live-baseline.json", observation("用户已完成装配"))
+        manual_evidence = self.evidence("ready-manual-live-baseline.png")
+        adopted = self.run_command(
+            HARNESS,
+            "adopt-live-baseline",
+            self.root,
+            "--authorized-by",
+            "user",
+            "--reason",
+            "用户在无开放事务时手工推进工程",
+            "--observation",
+            manual_path,
+            "--evidence",
+            manual_evidence,
+        )
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+        state = json.loads((self.root / "harness/state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["lifecycle"], "ready")
+        self.assertEqual(state["adopted_live_baseline"]["baseline_id"], "B0001")
+        self.assertIsNone(state["adopted_live_baseline"]["cancelled_batch_id"])
+        ledger_rows = (self.root / "batch_ledger.tsv").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(ledger_rows), 1)
+
+    def test_live_timing_contract_uses_measured_jianying_end(self) -> None:
+        live = observation()
+        live["project_timecode"] = "00:11:49:17"
+        live["narration_end_timecode"] = "00:11:49:17"
+        live["narration_clip_count"] = 22
+        live_path = self.write_json("live-timing-state.json", live)
+        output = self.root / "timing_contract.json"
+        completed = self.run_command(
+            FREEZE_TIMING,
+            "--observation",
+            live_path,
+            "--output",
+            output,
+            "--expected-narration-clips",
+            22,
+            "--narration-seconds",
+            709.12,
+            "--caption-final-end-seconds",
+            709.137,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        contract = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(contract["target_frame_count"], 42557)
+        self.assertEqual(contract["target_timecode"], "00:11:49:17")
+        self.assertEqual(contract["clock_source"], "verified_live_jianying_narration_end")
+        self.assertEqual(contract["caption_tail_hold_frames"], 8)
+
+        live["narration_end_timecode"] = "00:11:49:18"
+        live_path.write_text(json.dumps(live, ensure_ascii=False), encoding="utf-8")
+        replaced = self.run_command(
+            FREEZE_TIMING,
+            "--observation",
+            live_path,
+            "--output",
+            output,
+            "--expected-narration-clips",
+            22,
+            "--force",
+        )
+        self.assertEqual(replaced.returncode, 0, replaced.stderr)
+        replacement = json.loads(output.read_text(encoding="utf-8"))
+        self.assertTrue(Path(replacement["supersedes"]["recoverable_backup"]).is_file())
+
+    def test_live_timing_contract_rejects_project_total_as_implicit_narration_end(self) -> None:
+        live = observation()
+        live["project_timecode"] = "00:11:50:00"
+        live["narration_clip_count"] = 22
+        live_path = self.write_json("missing-narration-end.json", live)
+        completed = self.run_command(
+            FREEZE_TIMING,
+            "--observation",
+            live_path,
+            "--output",
+            self.root / "unsafe-timing-contract.json",
+            "--expected-narration-clips",
+            22,
+        )
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("requires narration_end_timecode", completed.stderr)
+
+    def test_timing_contract_can_be_created_inside_verified_offline_action(self) -> None:
+        prepared = self.run_command(
+            HARNESS,
+            "prepare",
+            self.root,
+            "--action-key",
+            "offline_artifact",
+            "--recipe-id",
+            "offline.objective-check.v1",
+            "--assumption",
+            "旁白轨端点已经独立测量",
+            "--scope",
+            "创建 timing_contract.json",
+            "--unit-limit-key",
+            "offline_artifacts_per_batch",
+            "--unit-count",
+            1,
+            "--check-id",
+            "timing_contract_live_clock",
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        token = json.loads(prepared.stdout)["next_action"]["token"]
+        begun = self.run_command(HARNESS, "begin", self.root, "--token", token)
+        self.assertEqual(begun.returncode, 0, begun.stderr)
+
+        live = observation()
+        live["project_timecode"] = "00:11:50:00"
+        live["narration_end_timecode"] = "00:11:49:17"
+        live["narration_clip_count"] = 22
+        live_path = self.write_json("offline-timing-live-state.json", live)
+        output = self.root / "timing_contract.json"
+        frozen = self.run_command(
+            FREEZE_TIMING,
+            "--observation",
+            live_path,
+            "--output",
+            output,
+            "--expected-narration-clips",
+            22,
+        )
+        self.assertEqual(frozen.returncode, 0, frozen.stderr)
+        verified = self.run_command(
+            HARNESS,
+            "verify",
+            self.root,
+            "--token",
+            token,
+            "--evidence",
+            output,
+            "--measured",
+            "旁白活体端点已冻结",
+        )
+        self.assertEqual(verified.returncode, 0, verified.stderr)
 
     def test_blocked_non_assistant_route_receives_no_token(self) -> None:
         pre = self.write_json("blocked-pre.json", observation())
@@ -1088,12 +1482,189 @@ class HarnessTest(unittest.TestCase):
             "reference_text_path": "clean_script.md",
             "expected_end_seconds": 2.0,
             "end_tolerance_ms": 1,
+            "forbidden_terminal_punctuation": list(CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION),
+            "terminal_closing_marks": list(CAPTION_TRAILING_CLOSING_MARKS),
         }
         passed, _, metrics = run_check(self.root, check)
         self.assertTrue(passed, metrics)
         check["expected_count"] = 3
         passed, _, _ = run_check(self.root, check)
         self.assertFalse(passed)
+
+    def test_srt_integrity_rejects_forbidden_terminal_punctuation_before_closer(self) -> None:
+        reference = self.root / "clean_script.md"
+        reference.write_text("「一句话；」真的吗？好！", encoding="utf-8")
+        srt = self.root / "captions/terminal-punctuation.srt"
+        srt.write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\n「一句话；」\n\n"
+            "2\n00:00:01,000 --> 00:00:02,000\n真的吗？\n\n"
+            "3\n00:00:02,000 --> 00:00:03,000\n好！\n",
+            encoding="utf-8",
+        )
+        check = {
+            "id": "caption_terminal_gate",
+            "type": "srt_integrity",
+            "path": "captions/terminal-punctuation.srt",
+            "expected_count": 3,
+            "reference_text_path": "clean_script.md",
+            "expected_end_seconds": 3.0,
+            "end_tolerance_ms": 1,
+            "forbidden_terminal_punctuation": list(CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION),
+            "terminal_closing_marks": list(CAPTION_TRAILING_CLOSING_MARKS),
+        }
+        passed, _, metrics = run_check(self.root, check)
+        self.assertFalse(passed)
+        self.assertEqual(
+            [entry["entry"] for entry in metrics["forbidden_terminal_punctuation_entries"]],
+            [1],
+        )
+
+        srt.write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\n「一句话」\n\n"
+            "2\n00:00:01,000 --> 00:00:02,000\n真的吗？\n\n"
+            "3\n00:00:02,000 --> 00:00:03,000\n好！\n",
+            encoding="utf-8",
+        )
+        passed, _, metrics = run_check(self.root, check)
+        self.assertTrue(passed, metrics)
+
+    def test_caption_actions_require_exact_terminal_punctuation_policy(self) -> None:
+        check = {
+            "type": "srt_integrity",
+            "forbidden_terminal_punctuation": list(CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION),
+            "terminal_closing_marks": list(CAPTION_TRAILING_CLOSING_MARKS),
+        }
+        validate_caption_terminal_punctuation_policy(check)
+        for action_key in ("caption_replace_atomic", "caption_canonical_export"):
+            self.assertTrue(
+                ACTION_REGISTRY[action_key].get("caption_terminal_punctuation_policy_required"),
+                action_key,
+            )
+
+        check["forbidden_terminal_punctuation"] = ["。"]
+        with self.assertRaisesRegex(ValueError, "forbidden_terminal_punctuation"):
+            validate_caption_terminal_punctuation_policy(check)
+
+    def test_caption_replace_route_requires_verified_local_subtitle_card_drag(self) -> None:
+        steps = [
+            {
+                "sequence": 1,
+                "action": "press",
+                "target": self.ui_target(name="文本", identifier="text-panel", visible_text="文本"),
+            },
+            {
+                "sequence": 2,
+                "action": "press",
+                "target": self.ui_target(name="新建文本", identifier="new-text", visible_text="新建文本"),
+            },
+            {
+                "sequence": 3,
+                "action": "press",
+                "target": self.ui_target(
+                    name="导入本地字幕",
+                    identifier="import-local-subtitle",
+                    visible_text="导入本地字幕",
+                ),
+            },
+            {
+                "sequence": 4,
+                "action": "confirm",
+                "target": self.ui_target(name="导入", identifier="file-import", visible_text="导入"),
+            },
+            {
+                "sequence": 5,
+                "action": "drag",
+                "target": self.ui_target(
+                    name="修缮版.srt",
+                    identifier="local-subtitle-card",
+                    visible_text="本地字幕素材卡",
+                ),
+            },
+            {
+                "sequence": 6,
+                "action": "key_press",
+                "target": self.ui_target(
+                    name="删除旧字幕轨",
+                    identifier="remove-raw-caption-track",
+                    visible_text="删除旧字幕轨",
+                ),
+            },
+            {
+                "sequence": 7,
+                "action": "press",
+                "target": self.ui_target(name="导出", identifier="open-export", visible_text="导出"),
+            },
+            {
+                "sequence": 8,
+                "action": "press",
+                "target": self.ui_target(
+                    name="字幕导出",
+                    identifier="caption-export",
+                    visible_text="字幕导出",
+                ),
+            },
+            {
+                "sequence": 9,
+                "action": "confirm",
+                "target": self.ui_target(
+                    name="确认导出",
+                    identifier="confirm-export",
+                    visible_text="确认导出",
+                ),
+            },
+        ]
+        checkpoints = ACTION_REGISTRY["caption_replace_atomic"]["ui_required_step_checkpoints"]
+        matches = validate_required_ui_route_checkpoints(steps, checkpoints)
+        self.assertEqual(
+            [match["checkpoint"] for match in matches],
+            [checkpoint["name"] for checkpoint in checkpoints],
+        )
+
+        unsafe_steps = json.loads(json.dumps(steps, ensure_ascii=False))
+        unsafe_steps[4]["action"] = "press"
+        with self.assertRaisesRegex(ValueError, "drag_local_subtitle_card"):
+            validate_required_ui_route_checkpoints(unsafe_steps, checkpoints)
+
+    def test_caption_transaction_requires_import_before_old_track_removal(self) -> None:
+        raw = self.root / "captions/raw.srt"
+        canonical = self.root / "captions/canonical.srt"
+        raw.write_text("1\n00:00:00,000 --> 00:00:01,000\n原始\n", encoding="utf-8")
+        canonical.write_text("1\n00:00:00,000 --> 00:00:01,000\n语义\n", encoding="utf-8")
+        transaction = self.write_json(
+            "caption-transaction.json",
+            {
+                "events": [
+                    "raw_backup_verified",
+                    "semantic_srt_audited",
+                    "local_subtitle_card_verified",
+                    "semantic_track_dragged_verified",
+                    "raw_track_removed",
+                    "canonical_exported",
+                ],
+                "caption_track_counts": [1, 1, 2, 1],
+                "exact_overlap_count": 0,
+                "final_caption_count": 1,
+                "raw_backup": str(raw),
+                "imported_srt": str(canonical),
+                "local_subtitle_card_name": canonical.name,
+                "canonical_export": str(canonical),
+                "subtitle_export_settings": {
+                    "video_export": False,
+                    "audio_export": False,
+                    "caption_export": True,
+                    "format": "SRT",
+                    "encoding": "Unicode / UTF-8",
+                },
+            },
+        )
+        result = validate_caption_transaction(transaction, 1)
+        self.assertEqual(result["caption_track_counts"], [1, 1, 2, 1])
+
+        unsafe = json.loads(transaction.read_text(encoding="utf-8"))
+        unsafe["caption_track_counts"] = [1, 0, 2, 1]
+        transaction.write_text(json.dumps(unsafe), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "safe track counts"):
+            validate_caption_transaction(transaction, 1)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from run_objective_checks import run_check, run_plan
+from run_objective_checks import (
+    CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION,
+    CAPTION_TRAILING_CLOSING_MARKS,
+    run_check,
+    run_plan,
+)
 
 
 SCHEMA_VERSION = 2
@@ -35,7 +40,9 @@ LIFECYCLES = {"ready", "prepared", "in_action", "repair_required", "blocked", "c
 FORBIDDEN_UI_LABELS = ("试试剪映助手", "剪映助手")
 UI_ROUTE_SCHEMA_VERSION = 1
 UI_ROUTE_MAX_AGE_SECONDS = 600
-UI_HIT_TEST_MAX_AGE_SECONDS = 10
+UI_HIT_TEST_MAX_AGE_SECONDS = 30
+RETRYABLE_UI_REASON_CODES = {"ui_evidence_stale"}
+CLOSED_LEDGER_STATUSES = {"pass", "waived", "cancelled_no_mutation"}
 ALLOWED_UI_ROUTE_METHODS = {
     "accessibility",
     "direct_control",
@@ -183,7 +190,7 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             "picture_clip_count": "same",
             "bgm_track_count": "same",
             "bgm_clip_count": "same",
-            "narration_track_count": "same",
+            "narration_track_count": "same_or_0_to_1",
             "narration_clip_count": "+1",
             "protected_tracks_locked": "same",
         },
@@ -207,7 +214,7 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             "picture_clip_count": "same",
             "bgm_track_count": "same",
             "bgm_clip_count": "same",
-            "narration_track_count": "same",
+            "narration_track_count": "same_or_0_to_1",
             "protected_tracks_locked": "same",
         },
         "required_expect": ["project_timecode"],
@@ -237,11 +244,69 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
     "caption_replace_atomic": {
         "mutation": "live.caption.replace_atomic",
         "live": True,
-        "recipe_id": "jianying.caption-export-remove-import-export.v1",
+        "recipe_id": "jianying.caption-text-local-import-drag-verify-remove-export.v3",
         "verifier": "live_state_delta_and_caption_transaction",
-        "ui_required_control": "字幕导出、删除、导入与再导出",
-        "ui_route_id": "caption-export-remove-import-export-v1",
-        "ui_anchor_terms": ["字幕", "caption", "subtitle"],
+        "ui_required_control": "文本→新建文本→导入本地字幕→字幕素材卡拖入时间线→双轨验证→删除旧轨→仅字幕再导出",
+        "ui_route_id": "caption-text-local-import-drag-verify-remove-export-v3",
+        "ui_anchor_terms": [
+            "文本",
+            "新建文本",
+            "导入本地字幕",
+            "本地字幕",
+            "字幕导出",
+            "text",
+            "new text",
+            "import local subtitle",
+            "local subtitle",
+            "subtitle export",
+        ],
+        "ui_required_step_checkpoints": [
+            {
+                "name": "open_text_panel",
+                "terms": ["文本", "text"],
+                "actions": ["click", "press", "select"],
+            },
+            {
+                "name": "open_new_text",
+                "terms": ["新建文本", "new text"],
+                "actions": ["click", "press", "select"],
+            },
+            {
+                "name": "open_local_subtitle_import",
+                "terms": ["导入本地字幕", "import local subtitle"],
+                "actions": ["click", "press", "select"],
+            },
+            {
+                "name": "confirm_srt_import",
+                "terms": ["导入", "import"],
+                "actions": ["click", "press", "confirm"],
+            },
+            {
+                "name": "drag_local_subtitle_card",
+                "terms": ["本地字幕素材卡", "local subtitle card"],
+                "actions": ["drag"],
+            },
+            {
+                "name": "remove_raw_caption_track",
+                "terms": ["删除旧字幕轨", "删除原字幕轨", "remove raw caption track", "remove original caption track"],
+                "actions": ["click", "press", "key_press", "select"],
+            },
+            {
+                "name": "open_canonical_export",
+                "terms": ["导出", "export"],
+                "actions": ["click", "press"],
+            },
+            {
+                "name": "canonical_caption_export",
+                "terms": ["字幕导出", "caption export", "subtitle export"],
+                "actions": ["click", "press", "select"],
+            },
+            {
+                "name": "confirm_canonical_export",
+                "terms": ["确认导出", "开始导出", "导出", "ExportOkBtn", "confirm export"],
+                "actions": ["click", "press", "confirm"],
+            },
+        ],
         "media_required": True,
         "stable_media_required": True,
         "expect": {
@@ -260,6 +325,77 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "caption_transaction_required": True,
         "objective_check_required": True,
         "allowed_objective_types": ["srt_integrity"],
+        "caption_terminal_punctuation_policy_required": True,
+    },
+    "caption_backup_export": {
+        "mutation": "live.caption.export_backup",
+        "live": True,
+        "recipe_id": "jianying.caption-only-export-backup.v2",
+        "verifier": "live_state_delta",
+        "ui_required_control": "仅导出当前字幕备份",
+        "ui_route_id": "caption-backup-export-accessibility-v2",
+        "ui_anchor_terms": ["字幕备份", "字幕导出", "仅导出字幕", "caption backup", "subtitle export"],
+        "ui_required_step_checkpoints": [
+            {
+                "name": "open_export",
+                "terms": ["导出", "export"],
+                "actions": ["click", "press"],
+            },
+            {
+                "name": "select_caption_export",
+                "terms": ["字幕导出", "caption export", "subtitle export"],
+                "actions": ["click", "press", "select"],
+            },
+            {
+                "name": "confirm_caption_export",
+                "terms": ["确认导出", "开始导出", "导出", "ExportOkBtn", "confirm export"],
+                "actions": ["click", "press", "confirm"],
+            },
+        ],
+        "expect": {
+            **SAME_CORE,
+            "project_timecode": "same",
+            "caption_track_count": "same",
+            "narration_track_count": "same",
+            "narration_clip_count": "same",
+            "picture_track_count": "same",
+            "picture_clip_count": "same",
+            "bgm_track_count": "same",
+            "bgm_clip_count": "same",
+            "protected_tracks_locked": "same",
+        },
+        "allow_unknown_pre_counts": ["caption_count"],
+        "objective_check_required": True,
+        "allowed_objective_types": ["file_nonempty", "srt_integrity"],
+    },
+    "navigate_caption_ui": {
+        "mutation": "live.ui.navigate_caption",
+        "live": True,
+        "recipe_id": "jianying.caption-ui-navigation.v1",
+        "verifier": "live_state_delta",
+        "ui_required_control": "字幕界面导航",
+        "ui_route_id": "caption-ui-navigation-v1",
+        "ui_anchor_terms": ["字幕", "文本", "导入", "关闭", "caption", "subtitle", "import", "close"],
+        "expect": {
+            "app_bundle_version": "same",
+            "ui_recipe_profile": "same",
+            "ui_recipe_calibrated": "true",
+            "draft_name": "same",
+            "timeline_name": "same",
+            "timeline_count": "same",
+            "authoritative_timeline": "true",
+            "project_timecode": "same",
+            "caption_track_count": "same",
+            "caption_count": "same",
+            "narration_track_count": "same",
+            "narration_clip_count": "same",
+            "picture_track_count": "same",
+            "picture_clip_count": "same",
+            "bgm_track_count": "same",
+            "bgm_clip_count": "same",
+            "protected_tracks_locked": "same",
+        },
+        "required_expect": ["visible_panel"],
     },
     "apply_picture_master": {
         "mutation": "live.picture.replace",
@@ -308,7 +444,7 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             "narration_clip_count": "same",
             "picture_track_count": "same",
             "picture_clip_count": "same",
-            "bgm_track_count": "same",
+            "bgm_track_count": "same_or_0_to_1",
             "bgm_clip_count": "+1",
             "protected_tracks_locked": "same",
         },
@@ -361,14 +497,32 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
     "caption_canonical_export": {
         "mutation": "live.caption.export_only",
         "live": True,
-        "recipe_id": "jianying.caption-only-export.v1",
+        "recipe_id": "jianying.caption-only-export.v2",
         "verifier": "live_state_delta",
         "ui_required_control": "仅导出字幕",
-        "ui_route_id": "caption-export-accessibility-v1",
+        "ui_route_id": "caption-export-accessibility-v2",
         "ui_anchor_terms": ["字幕导出", "仅导出字幕", "caption export", "subtitle export"],
+        "ui_required_step_checkpoints": [
+            {
+                "name": "open_export",
+                "terms": ["导出", "export"],
+                "actions": ["click", "press"],
+            },
+            {
+                "name": "select_caption_export",
+                "terms": ["字幕导出", "caption export", "subtitle export"],
+                "actions": ["click", "press", "select"],
+            },
+            {
+                "name": "confirm_caption_export",
+                "terms": ["确认导出", "开始导出", "导出", "ExportOkBtn", "confirm export"],
+                "actions": ["click", "press", "confirm"],
+            },
+        ],
         "expect": SAME_ALL,
         "objective_check_required": True,
         "allowed_objective_types": ["srt_integrity"],
+        "caption_terminal_punctuation_policy_required": True,
     },
     "live_qa_capture": {
         "mutation": "live.qa.capture",
@@ -524,7 +678,7 @@ def parse_fresh_ui_timestamp(
     age = datetime.now(timezone.utc).timestamp() - captured.timestamp()
     if age < -60 or age > max_age_seconds:
         ui_guardrail_violation(
-            "forbidden_ui_route_unavailable",
+            "ui_evidence_stale",
             f"{label} is stale or from the future (age_seconds={age:.1f})",
         )
     return captured.isoformat()
@@ -756,6 +910,69 @@ def actual_step_matches_planned(actual: object, planned: object) -> bool:
     )
 
 
+def validate_required_ui_route_checkpoints(
+    steps: list[dict[str, Any]],
+    checkpoints: object,
+) -> list[dict[str, Any]]:
+    if not checkpoints:
+        return []
+    if not isinstance(checkpoints, list):
+        ui_guardrail_violation(
+            "forbidden_ui_route_unavailable",
+            "ui_required_step_checkpoints must be a list",
+        )
+    cursor = 0
+    matches = []
+    for checkpoint_number, checkpoint in enumerate(checkpoints, start=1):
+        if not isinstance(checkpoint, dict) or set(checkpoint) != {"name", "terms", "actions"}:
+            ui_guardrail_violation(
+                "forbidden_ui_route_unavailable",
+                f"ui_required_step_checkpoints[{checkpoint_number}] requires exactly name, terms, and actions",
+            )
+        name = str(checkpoint["name"]).strip()
+        terms = [normalize_ui_text(term) for term in checkpoint["terms"] if normalize_ui_text(term)]
+        actions = {
+            str(action).strip().casefold().replace("-", "_")
+            for action in checkpoint["actions"]
+            if str(action).strip()
+        }
+        if not name or not terms or not actions:
+            ui_guardrail_violation(
+                "forbidden_ui_route_unavailable",
+                f"ui_required_step_checkpoints[{checkpoint_number}] is empty",
+            )
+        matched_index = None
+        for step_index in range(cursor, len(steps)):
+            step = steps[step_index]
+            action = str(step.get("action", "")).strip().casefold().replace("-", "_")
+            target = step.get("target") if isinstance(step.get("target"), dict) else {}
+            semantic_values = [
+                normalize_ui_text(target[field])
+                for field in SEMANTIC_UI_TARGET_FIELDS
+                if field in target and str(target[field]).strip()
+            ]
+            if action in actions and any(
+                term in value
+                for value in semantic_values
+                for term in terms
+            ):
+                matched_index = step_index
+                break
+        if matched_index is None:
+            ui_guardrail_violation(
+                "forbidden_ui_route_unavailable",
+                f"selected_route is missing required ordered checkpoint: {name}",
+            )
+        matches.append(
+            {
+                "checkpoint": name,
+                "sequence": matched_index + 1,
+            }
+        )
+        cursor = matched_index + 1
+    return matches
+
+
 def build_ui_route_binding(
     *,
     action_key: str,
@@ -879,6 +1096,10 @@ def validate_ui_route_preflight(path: Path, expected_binding: dict[str, Any]) ->
             "forbidden_ui_route_unavailable",
             "selected_route steps do not identify the registered action control",
         )
+    required_checkpoint_matches = validate_required_ui_route_checkpoints(
+        steps,
+        spec.get("ui_required_step_checkpoints"),
+    )
     return {
         "schema_version": UI_ROUTE_SCHEMA_VERSION,
         "status": status,
@@ -888,6 +1109,7 @@ def validate_ui_route_preflight(path: Path, expected_binding: dict[str, Any]) ->
         "method": method,
         "planned_step_inputs": steps,
         "planned_steps": planned_steps,
+        "required_checkpoint_matches": required_checkpoint_matches,
         "visible_forbidden_regions": normalized_regions,
         "forbidden_labels_seen": sorted(
             {label for region in normalized_regions for label in region["label"]}
@@ -1363,14 +1585,33 @@ def parse_expectations(values: list[str] | None) -> dict[str, str]:
     return result
 
 
-def load_observation(path: Path) -> dict[str, Any]:
+def load_observation(path: Path, allow_unknown_counts: set[str] | None = None) -> dict[str, Any]:
     value = read_json(path, "live observation")
     missing = [field for field in LIVE_OBSERVATION_KEYS if field not in value]
     if missing:
         raise ValueError(f"live observation missing keys: {missing}")
+    allowed_unknowns = allow_unknown_counts or set()
+    actual_unknowns: set[str] = set()
     for field in LIVE_OBSERVATION_KEYS:
-        if field.endswith("_count") and (not isinstance(value[field], int) or value[field] < 0):
+        if not field.endswith("_count"):
+            continue
+        if value[field] is None and field in allowed_unknowns:
+            actual_unknowns.add(field)
+            continue
+        if not isinstance(value[field], int) or value[field] < 0:
             raise ValueError(f"live observation {field} must be a nonnegative integer")
+    declared_unknowns = set(value.get("unresolved_measurements") or [])
+    if actual_unknowns - declared_unknowns:
+        raise ValueError(
+            "live observation must declare unresolved_measurements for unknown counts: "
+            + ", ".join(sorted(actual_unknowns - declared_unknowns))
+        )
+    undeclared_nulls = declared_unknowns - actual_unknowns
+    if undeclared_nulls:
+        raise ValueError(
+            "unresolved_measurements contains fields that are not approved unknown counts: "
+            + ", ".join(sorted(undeclared_nulls))
+        )
     if not value["draft_name"] or not value["timeline_name"] or not value["project_timecode"]:
         raise ValueError("live observation requires draft_name, timeline_name, and project_timecode")
     for field in ("app_bundle_version", "window_signature", "ui_recipe_profile"):
@@ -1415,7 +1656,10 @@ def parse_spec(spec: str) -> Any:
 def compare_observations(before: dict[str, Any], after: dict[str, Any], expectations: dict[str, str]) -> list[str]:
     failures = []
     for field, spec in expectations.items():
-        if field not in before and spec in {"same", "+1", "-1"}:
+        needs_before = spec in {"same", "same_or_0_to_1"} or (
+            len(spec) > 1 and spec[0] in {"+", "-"} and spec[1:].isdigit()
+        )
+        if field not in before and needs_before:
             failures.append(f"before observation missing {field}")
             continue
         if field not in after:
@@ -1424,6 +1668,8 @@ def compare_observations(before: dict[str, Any], after: dict[str, Any], expectat
         actual = after[field]
         if spec == "same":
             expected = before[field]
+        elif spec == "same_or_0_to_1":
+            expected = 1 if before[field] == 0 else before[field]
         elif spec.startswith("+") and spec[1:].isdigit():
             expected = before[field] + int(spec[1:])
         elif spec.startswith("-") and spec[1:].isdigit():
@@ -1450,6 +1696,23 @@ def validate_objective_binding(check: dict[str, Any], mutation: str) -> None:
     forbidden = {"batch_ledger.tsv", "run_manifest.json", "harness/state.json", "harness/events.jsonl"}
     if any(str(target) in forbidden for target in targets):
         raise ValueError(f"check {check.get('id')} is self-referential and cannot prove a production action")
+
+
+def validate_caption_terminal_punctuation_policy(check: dict[str, Any]) -> None:
+    if check.get("type") != "srt_integrity":
+        raise ValueError("caption terminal-punctuation policy requires an srt_integrity check")
+    expected_forbidden = list(CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION)
+    expected_closing_marks = list(CAPTION_TRAILING_CLOSING_MARKS)
+    if check.get("forbidden_terminal_punctuation") != expected_forbidden:
+        raise ValueError(
+            "caption srt_integrity check must declare forbidden_terminal_punctuation="
+            f"{expected_forbidden!r}"
+        )
+    if check.get("terminal_closing_marks") != expected_closing_marks:
+        raise ValueError(
+            "caption srt_integrity check must declare terminal_closing_marks="
+            f"{expected_closing_marks!r}"
+        )
 
 
 def media_identity(path: Path) -> dict[str, Any]:
@@ -1518,23 +1781,54 @@ def validate_bgm_manifest(root: Path) -> dict[str, Any]:
     return metrics
 
 
-def validate_caption_transaction(path: Path, expected_count: Any) -> dict[str, Any]:
+def validate_caption_transaction(
+    path: Path,
+    expected_count: Any,
+    expected_media: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     value = read_json(path, "caption transaction")
-    required_events = ["raw_backup_exported", "raw_track_removed", "semantic_imported", "canonical_exported"]
+    required_events = [
+        "raw_backup_verified",
+        "semantic_srt_audited",
+        "local_subtitle_card_verified",
+        "semantic_track_dragged_verified",
+        "raw_track_removed",
+        "canonical_exported",
+    ]
     if value.get("events") != required_events:
         raise ValueError(f"caption transaction events must equal {required_events}")
-    if value.get("caption_track_counts") != [1, 0, 1]:
-        raise ValueError("caption transaction must prove track counts 1 -> 0 -> 1")
+    if value.get("caption_track_counts") != [1, 1, 2, 1]:
+        raise ValueError("caption transaction must prove safe track counts 1 -> 1 -> 2 -> 1")
     if int(value.get("exact_overlap_count", -1)) != 0:
         raise ValueError("caption transaction exact_overlap_count must be zero")
     if int(value.get("final_caption_count", -1)) != int(expected_count):
         raise ValueError("caption transaction final count does not match expected caption_count")
-    for field in ("raw_backup", "canonical_export"):
+    expected_export_settings = {
+        "video_export": False,
+        "audio_export": False,
+        "caption_export": True,
+        "format": "SRT",
+        "encoding": "Unicode / UTF-8",
+    }
+    if value.get("subtitle_export_settings") != expected_export_settings:
+        raise ValueError(
+            f"caption transaction subtitle_export_settings must equal {expected_export_settings}"
+        )
+    for field in ("raw_backup", "imported_srt", "canonical_export"):
         candidate = Path(value.get(field, "")).expanduser()
         if not candidate.is_absolute():
             candidate = path.parent / candidate
         if not candidate.is_file() or candidate.stat().st_size == 0:
             raise ValueError(f"caption transaction missing nonempty {field}: {candidate}")
+    imported_srt = Path(value["imported_srt"]).expanduser().resolve()
+    expected_card_name = imported_srt.name
+    if expected_media:
+        expected_srt = Path(expected_media["path"]).expanduser().resolve()
+        if imported_srt != expected_srt:
+            raise ValueError("caption transaction imported_srt does not match prepared media")
+        expected_card_name = str(expected_media["basename"])
+    if value.get("local_subtitle_card_name") != expected_card_name:
+        raise ValueError("caption transaction local_subtitle_card_name does not match imported SRT basename")
     return value
 
 
@@ -1615,7 +1909,7 @@ def _status_payload(root: Path, state: dict[str, Any]) -> dict[str, Any]:
             "open_repair": "repair_required",
             "blocked": "blocked",
         }.get(ledger_row.get("status") if ledger_row else None)
-        if ledger_row and ledger_row.get("status") in {"pass", "waived"}:
+        if ledger_row and ledger_row.get("status") in CLOSED_LEDGER_STATUSES:
             return {
                 "lifecycle": "blocked",
                 "phase": state["phase"],
@@ -1837,6 +2131,8 @@ def command_prepare(args: argparse.Namespace) -> int:
                     f"{args.action_key} objective check must use one of {spec.get('allowed_objective_types', [])}"
                 )
             validate_objective_binding(supplemental_objective_check, spec["mutation"])
+            if spec.get("caption_terminal_punctuation_policy_required"):
+                validate_caption_terminal_punctuation_policy(supplemental_objective_check)
         if args.optional:
             criterion_checks = {
                 criterion.get("check_id")
@@ -1862,7 +2158,10 @@ def command_prepare(args: argparse.Namespace) -> int:
             observation_path = Path(args.observation or "").expanduser().resolve()
             if not args.observation:
                 raise ValueError("live mutation requires --observation PRE_STATE.json")
-            observation = load_observation(observation_path)
+            observation = load_observation(
+                observation_path,
+                set(spec.get("allow_unknown_pre_counts", [])),
+            )
             pre_evidence = evidence_paths(args.evidence, minimum=1)
             if not args.ui_route_preflight:
                 persist_ui_guardrail_block(root, state, violation)
@@ -1881,7 +2180,17 @@ def command_prepare(args: argparse.Namespace) -> int:
                     expected_ui_binding,
                 )
             except UIGuardrailViolation as violation:
-                persist_ui_guardrail_block(root, state, violation)
+                if violation.reason_code in RETRYABLE_UI_REASON_CODES:
+                    append_event(
+                        root,
+                        state,
+                        "UI_ROUTE_PREFLIGHT_REJECTED_RETRYABLE",
+                        reason_code=violation.reason_code,
+                        detail=violation.detail,
+                    )
+                    save_state(root, state)
+                else:
+                    persist_ui_guardrail_block(root, state, violation)
                 raise
             pre_checkpoint = save_checkpoint(root, batch_id, "before", observation, pre_evidence)
         if spec.get("media_required"):
@@ -2061,7 +2370,26 @@ def command_authorize_ui_step(args: argparse.Namespace) -> int:
                 if isinstance(exc, UIGuardrailViolation)
                 else UIGuardrailViolation("forbidden_ui_route_unavailable", str(exc))
             )
-            persist_ui_guardrail_block(root, state, violation, action=action)
+            if violation.reason_code in RETRYABLE_UI_REASON_CODES:
+                append_event(
+                    root,
+                    state,
+                    "UI_HIT_TEST_REJECTED_RETRYABLE",
+                    batch_id=action["batch_id"],
+                    sequence=sequence,
+                    reason_code=violation.reason_code,
+                    detail=violation.detail,
+                )
+                state["next_action"] = {
+                    "kind": "authorize_ui_step",
+                    "token": action["token"],
+                    "sequence": sequence,
+                    "instruction": "Capture a new hit-test and retry authorization; no UI step was authorized or executed.",
+                }
+                atomic_json(pending_action_path(root), action)
+                save_state(root, state)
+            else:
+                persist_ui_guardrail_block(root, state, violation, action=action)
             raise violation
         authorization_payload = {
             "run_id": state["run_id"],
@@ -2210,6 +2538,238 @@ def command_skip(args: argparse.Namespace) -> int:
         state["open_action"] = None
         state["next_action"] = None
         state["lifecycle"] = "ready"
+        save_state(root, state)
+        pending_action_path(root).unlink(missing_ok=True)
+    print(json.dumps(status_payload(root, state), ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_adopt_live_baseline(args: argparse.Namespace) -> int:
+    """Record user-authored live state without claiming its mutations."""
+
+    root = Path(args.run_dir).expanduser().resolve()
+    with run_lock(root):
+        state = load_state(root)
+        if args.authorized_by != "user":
+            raise ValueError("adopt-live-baseline requires explicit user authority")
+        action = state.get("open_action")
+        if action is None:
+            if state["lifecycle"] != "ready":
+                raise ValueError(
+                    "adopt-live-baseline without an open action requires lifecycle=ready"
+                )
+            baseline_number = int(state.get("manual_baseline_count", 0)) + 1
+            baseline_id = f"B{baseline_number:04d}"
+        else:
+            if state["lifecycle"] not in {"prepared", "in_action", "repair_required", "blocked"}:
+                raise ValueError("adopt-live-baseline requires a ready run or one open live action")
+            if not ACTION_REGISTRY.get(action.get("action_key"), {}).get("live"):
+                raise ValueError("adopt-live-baseline cannot cancel an open offline action")
+            execution = action.get("ui_execution") or {}
+            if execution.get("pending_authorization"):
+                raise ValueError(
+                    "cannot adopt a manual baseline while one UI step has unknown completion state; inspect it first"
+                )
+            completed = execution.get("completed_authorizations") or []
+            if completed:
+                raise ValueError(
+                    "cannot adopt a manual baseline after an agent-authorized UI step; verify, fail, or restore that action"
+                )
+            baseline_id = action["batch_id"]
+
+        observation_path = Path(args.observation).expanduser().resolve()
+        observation = load_observation(
+            observation_path,
+            {field for field in LIVE_OBSERVATION_KEYS if field.endswith("_count")},
+        )
+        evidence = evidence_paths(args.evidence, minimum=1)
+        checkpoint = save_checkpoint(
+            root,
+            baseline_id,
+            "user_authored_live_baseline",
+            observation,
+            evidence,
+        )
+        authorization = f"user-authorized:{utc_now()}"
+        result = {
+            "baseline_id": baseline_id,
+            "checked_at": utc_now(),
+            "pass": True,
+            "status": "cancelled_no_mutation" if action else "baseline_recorded",
+            "agent_ui_steps_authorized": 0,
+            "agent_ui_steps_completed": 0,
+            "claims_user_mutations": False,
+            "user_authorization": authorization,
+            "reason": args.reason,
+            "adopted_baseline": checkpoint,
+            "source_observation": fingerprint(observation_path),
+            "evidence": [fingerprint(path) for path in evidence],
+        }
+        if action:
+            result.update(
+                {
+                    "batch_id": action["batch_id"],
+                    "action_key": action["action_key"],
+                    "mutation": action["mutation"],
+                    "ledger_check_id": action.get("ledger_check_id", action["check_id"]),
+                }
+            )
+        result_path = root / f"harness/checks/{baseline_id}/manual_baseline_adoption.json"
+        atomic_json(result_path, result)
+        if action:
+            update_ledger(
+                root,
+                action["batch_id"],
+                measured="cancelled before any agent-authorized UI step; user-authored live baseline adopted",
+                status="cancelled_no_mutation",
+                evidence=";".join([str(result_path), *[str(path) for path in evidence]]),
+                superseded_by=authorization,
+                closed_at=utc_now(),
+            )
+            state.setdefault("recipe_success_streak", {})[action["recipe_id"]] = 0
+            append_event(
+                root,
+                state,
+                "ACTION_CANCELLED_NO_MUTATION",
+                batch_id=action["batch_id"],
+                action_key=action["action_key"],
+                authorization=authorization,
+            )
+        else:
+            state["manual_baseline_count"] = baseline_number
+        state["last_good_checkpoint"] = checkpoint
+        state["adopted_live_baseline"] = {
+            "baseline_id": baseline_id,
+            "cancelled_batch_id": action["batch_id"] if action else None,
+            "cancelled_action_key": action["action_key"] if action else None,
+            "checkpoint": checkpoint,
+            "authorization": authorization,
+            "reason": args.reason,
+        }
+        append_event(
+            root,
+            state,
+            "USER_AUTHORED_LIVE_BASELINE_ADOPTED",
+            baseline_id=baseline_id,
+            cancelled_batch_id=action["batch_id"] if action else None,
+            checkpoint=checkpoint,
+            reason=args.reason,
+        )
+        state["open_action"] = None
+        state["blocked"] = None
+        state["next_action"] = None
+        state["lifecycle"] = "ready"
+        save_state(root, state)
+        pending_action_path(root).unlink(missing_ok=True)
+    print(json.dumps(status_payload(root, state), ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_resolve_caption_navigation(args: argparse.Namespace) -> int:
+    """Close a blocked, completed caption-navigation action after a verified layout change."""
+
+    root = Path(args.run_dir).expanduser().resolve()
+    with run_lock(root):
+        state = load_state(root)
+        if args.authorized_by != "user":
+            raise ValueError("resolve-caption-navigation requires explicit user authority")
+        if state["lifecycle"] != "blocked":
+            raise ValueError("resolve-caption-navigation requires lifecycle=blocked")
+        action = state.get("open_action") or {}
+        if action.get("action_key") != "navigate_caption_ui":
+            raise ValueError("resolve-caption-navigation is limited to navigate_caption_ui")
+        execution = action.get("ui_execution") or {}
+        if execution.get("pending_authorization"):
+            raise ValueError("caption navigation still has an unknown pending UI step")
+        planned = action.get("ui_route_preflight", {}).get("planned_steps") or []
+        completed = execution.get("completed_authorizations") or []
+        if not planned or len(completed) != len(planned):
+            raise ValueError("caption navigation route is not fully completed")
+
+        trace_path = Path(execution.get("trace_path", "")).expanduser().resolve()
+        trace = validate_ui_interaction_trace(trace_path, action, require_event=True)
+        observation_path = Path(args.observation).expanduser().resolve()
+        after = load_observation(observation_path)
+        before = read_json(Path(action["pre_checkpoint"]["observation"]), "pre observation")
+        expectations = dict(action["expectations"])
+        expectations.pop("window_signature", None)
+        failures = compare_observations(before, after, expectations)
+        if failures:
+            raise ValueError(
+                "navigation result still violates protected state: " + "; ".join(failures)
+            )
+        if before.get("window_signature") == after.get("window_signature"):
+            raise ValueError(
+                "navigation resolver requires a measured window-signature transition"
+            )
+
+        evidence = evidence_paths(args.evidence, minimum=1)
+        fresh_evidence(evidence, action["started_at"])
+        checkpoint = save_checkpoint(
+            root,
+            action["batch_id"],
+            f"navigation_resolved_attempt_{action['attempt']}",
+            after,
+            evidence,
+        )
+        authorization = f"user-authorized:{utc_now()}"
+        result = {
+            "batch_id": action["batch_id"],
+            "action_key": action["action_key"],
+            "mutation": action["mutation"],
+            "attempt": action["attempt"],
+            "checked_at": utc_now(),
+            "pass": True,
+            "resolution": "verified_window_signature_transition",
+            "previous_window_signature": before["window_signature"],
+            "current_window_signature": after["window_signature"],
+            "ui_interaction_trace": trace,
+            "checkpoint": checkpoint,
+            "user_authorization": authorization,
+            "reason": args.reason,
+            "evidence": [fingerprint(path) for path in evidence],
+        }
+        result_path = (
+            root
+            / f"harness/checks/{action['batch_id']}/navigation_resolution.json"
+        )
+        atomic_json(result_path, result)
+        update_ledger(
+            root,
+            action["batch_id"],
+            measured=args.reason,
+            status="pass",
+            evidence=";".join(
+                [str(result_path), *[str(path) for path in evidence]]
+            ),
+            superseded_by=authorization,
+            closed_at=utc_now(),
+        )
+        state.setdefault("completed_actions", []).append(
+            {
+                "action_key": action["action_key"],
+                "batch_id": action["batch_id"],
+                "closed_at": utc_now(),
+                "result": str(result_path),
+            }
+        )
+        counts = state.setdefault("action_success_count", {})
+        counts[action["action_key"]] = int(
+            counts.get(action["action_key"], 0)
+        ) + 1
+        state["last_good_checkpoint"] = checkpoint
+        state["blocked"] = None
+        state["open_action"] = None
+        state["next_action"] = None
+        state["lifecycle"] = "ready"
+        append_event(
+            root,
+            state,
+            "CAPTION_NAVIGATION_RESOLVED",
+            batch_id=action["batch_id"],
+            result=str(result_path),
+            authorization=authorization,
+        )
         save_state(root, state)
         pending_action_path(root).unlink(missing_ok=True)
     print(json.dumps(status_payload(root, state), ensure_ascii=False, indent=2))
@@ -2384,7 +2944,9 @@ def command_verify(args: argparse.Namespace) -> int:
             else:
                 try:
                     metrics["caption_transaction"] = validate_caption_transaction(
-                        Path(args.transaction_log).expanduser().resolve(), action["expectations"]["caption_count"]
+                        Path(args.transaction_log).expanduser().resolve(),
+                        action["expectations"]["caption_count"],
+                        action.get("media"),
                     )
                 except Exception as exc:
                     failures.append(str(exc))
@@ -2455,7 +3017,12 @@ def command_verify(args: argparse.Namespace) -> int:
                     else:
                         save_checkpoint(root, action["batch_id"], f"rollback_attempt_{action['attempt']}", rollback, evidence)
             protected_failure = any(
-                failure.split("=", 1)[0] in {field for field, expectation in action["expectations"].items() if expectation == "same"}
+                failure.split("=", 1)[0]
+                in {
+                    field
+                    for field, expectation in action["expectations"].items()
+                    if expectation in {"same", "same_or_0_to_1"}
+                }
                 for failure in failures
             )
             close_action_as_failure(
@@ -2588,7 +3155,7 @@ def command_recover(args: argparse.Namespace) -> int:
             return 0
 
         status = row.get("status", "")
-        if status in {"pass", "waived"}:
+        if status in CLOSED_LEDGER_STATUSES:
             if status == "pass" and not any(
                 item.get("batch_id") == pending.get("batch_id") for item in state.get("completed_actions", [])
             ):
@@ -2798,7 +3365,7 @@ def command_close(args: argparse.Namespace) -> int:
         if not final_order_passed(state):
             raise ValueError(f"final close requires verified action order: {list(FINAL_ACTION_ORDER)}")
         rows = read_ledger(root / "batch_ledger.tsv")
-        bad = [row.get("batch_id") for row in rows if row.get("status") not in {"pass", "waived"}]
+        bad = [row.get("batch_id") for row in rows if row.get("status") not in CLOSED_LEDGER_STATUSES]
         if bad:
             raise ValueError(f"batch ledger contains non-closed rows: {bad}")
 
@@ -2909,6 +3476,26 @@ def build_parser() -> argparse.ArgumentParser:
     skip.add_argument("--reason", required=True)
     skip.add_argument("--authorized-by", required=True, choices=("user",))
     skip.set_defaults(func=command_skip)
+
+    adopt_live_baseline = sub.add_parser("adopt-live-baseline")
+    adopt_live_baseline.add_argument("run_dir")
+    adopt_live_baseline.add_argument("--reason", required=True)
+    adopt_live_baseline.add_argument("--authorized-by", required=True, choices=("user",))
+    adopt_live_baseline.add_argument("--observation", required=True)
+    adopt_live_baseline.add_argument("--evidence", action="append", required=True)
+    adopt_live_baseline.set_defaults(func=command_adopt_live_baseline)
+
+    resolve_caption_navigation = sub.add_parser("resolve-caption-navigation")
+    resolve_caption_navigation.add_argument("run_dir")
+    resolve_caption_navigation.add_argument("--reason", required=True)
+    resolve_caption_navigation.add_argument(
+        "--authorized-by", required=True, choices=("user",)
+    )
+    resolve_caption_navigation.add_argument("--observation", required=True)
+    resolve_caption_navigation.add_argument(
+        "--evidence", action="append", required=True
+    )
+    resolve_caption_navigation.set_defaults(func=command_resolve_caption_navigation)
 
     verify = sub.add_parser("verify")
     verify.add_argument("run_dir")

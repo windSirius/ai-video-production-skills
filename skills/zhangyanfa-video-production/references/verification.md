@@ -42,7 +42,7 @@ Use `scripts/run_objective_checks.py` with only these safe check types:
 - `mission_flow_coverage`: mission-flow ranges cover the declared source duration within a maximum gap and required evidence fields are nonempty.
 - `srt_no_adjacent_duplicates`: parsed adjacent subtitle texts are not identical.
 - `srt_integrity`: exact cue count, continuous indices, ordered text hash when supplied, lexical coverage against a locked reference, valid ranges, overlap policy, adjacent duplicates, and final-end tolerance all pass.
-- `bgm_sources_within_root`: every `sections[].source` in a BGM manifest is an absolute existing file whose resolved path is inside the declared source root. For this skill, always set `source_root` to the absolute root resolved from `AI_VIDEO_MUSIC_ROOT`, defaulting to `$HOME/Music`.
+- `bgm_sources_within_root`: every `sections[].source` in a BGM manifest is an absolute existing file whose resolved path is inside the declared source root. For this skill, set `source_root` to the resolved configured BGM root (`AI_VIDEO_MUSIC_ROOT`, default `$HOME/Music`).
 - `media_probe`: ffprobe metadata satisfies declared duration, resolution, FPS, and stream-count bounds.
 - `media_frame_contract`: probed media frame count, FPS, duration, and stream policy match the canonical timing contract.
 - `live_state_assert`: a captured Jianying state contains required project, timeline, timecode, and track fields and satisfies explicit assertions.
@@ -79,7 +79,7 @@ BGM provenance example:
   "id": "bgm_sources_within_music",
   "type": "bgm_sources_within_root",
   "path": "audio/bgm_manifest.json",
-  "source_root": "/absolute/path/to/Music",
+  "source_root": "/absolute/resolved/configured/music/root",
   "required": true
 }
 ```

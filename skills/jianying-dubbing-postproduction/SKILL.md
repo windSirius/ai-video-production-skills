@@ -16,11 +16,13 @@ Turn numbered narration WAV files and a clean script into one sequential audio t
 - Never simulate a caption merge by assigning the same complete sentence to adjacent time segments. This creates duplicate rows even if the rendered pixels look continuous.
 - Never delete the old caption track until a replacement track is imported, recognized as captions, and verified on the timeline. Export a recoverable subtitle backup first.
 - Do not assume `File > Import` imports SRT as captions. Some Jianying builds treat that command as media import or ignore SRT. Verify the result before changing the project.
+- Use the verified macOS SRT route: export captions first; edit and audit the SRT offline; return through `文本 > 新建文本 > 导入本地字幕`; verify the imported file appears as a `本地字幕` material card; then drag that card into the timeline. Import completion alone does not create a caption track.
 - Caption-list edits rebuild accessibility elements. Fetch fresh UI state after each text edit; never reuse stale element indexes.
 - Preserve the requested font, preset, size, and position while editing caption text.
 - Treat the clean narration manuscript as the semantic authority and Manuscript Match timing as an initial alignment, not as an approved caption segmentation.
 - Prove that the final caption sequence covers the manuscript-matched text exactly once in order. Never accept a visually plausible result with omitted, repeated, or reordered words.
 - When a user-adjusted SRT exists, treat it as the strongest evidence of project-specific segmentation and punctuation preferences. Compare it with the prior semantic version before applying generic length rules.
+- Apply this user's default terminal-punctuation rule to every final caption: remove `，。；：,.;:` at the effective end, including immediately before trailing `」』”’）》〉）】`; preserve `？！?!` unless the user explicitly overrides the style.
 
 ## Choose the scope
 
@@ -78,7 +80,7 @@ After applying, inspect a caption near the beginning, middle, and end. Confirm t
 
 Read [references/caption-editing.md](references/caption-editing.md) before large caption edits.
 
-1. Export the untouched Manuscript Match result as `captions_matched_raw.srt` before editing.
+1. Open the top-right `导出` dialog, disable video and audio export, enable `字幕导出`, choose `SRT` with `Unicode / UTF-8`, and export the untouched Manuscript Match result as `captions_matched_raw.srt` before editing.
 2. Open the right-side `Captions` (`字幕`) list and extract the complete indexed sequence.
 3. Align every raw caption with its exact span in the clean manuscript.
 4. Build `caption_semantic_plan.tsv` before live edits. Record old rows, source manuscript span, planned caption text, planned one/two-line layout, timing strategy, and reason.
@@ -97,7 +99,7 @@ Read [references/caption-editing.md](references/caption-editing.md) before large
 4. Prefer one complete logical caption over several machine-cut fragments. Let long direct quotations remain intact when their display duration is sufficient; do not split a quotation solely to satisfy a character target.
 5. Separate a narrator lead-in from the direct quotation when the lead-in has its own spoken beat: for example, use `开拓者转述的时候说得很硬` followed by the complete quotation, rather than attaching half of the quotation to the lead-in.
 6. Treat 7–18 visible Chinese characters as a diagnostic range, not a target. Allow shorter deliberate beats and longer complete quotations when timing and readability support them. Review captions over 24 visible characters without automatically splitting them.
-7. Restore internal commas where they express audible breathing, contrast, or clause structure. Remove trailing commas and other terminal punctuation excluded by the user's style.
+7. Restore internal commas where they express audible breathing, contrast, or clause structure. At every effective caption ending, remove `，。；：,.;:`; first ignore any trailing `」』”’）》〉）】` so forms such as `；」` and `。」` are also repaired. Preserve `？！?!`.
 8. Use the verified caption-SRT replacement path when true clip merging or splitting is required. If caption import is unavailable, redistribute meaning across existing timing segments without duplicates, empty rows, or punctuation-only rows.
 9. During live caption-list editing, change one row, fetch fresh UI state, and locate the next row by current text and order.
 10. Re-scan the full caption list after every bounded group of edits.
@@ -127,17 +129,21 @@ When the installed build supports caption-file import:
 
 1. Preserve `captions_matched_raw.srt`, then create the planned semantic SRT as a separate version.
 2. Run `scripts/merge_adjacent_srt.py` to merge adjacent identical captions and extend the earlier time range.
-3. Import the cleaned file through the caption-specific import command.
-4. Verify that it created editable caption clips with the expected count and timing.
-5. Reapply style if import resets it.
-6. Only then remove the old track.
+3. Run `scripts/audit_semantic_srt.py` and require it to pass before touching the live timeline.
+4. In Jianying, open `文本 > 新建文本 > 导入本地字幕`; do not use `文件 > 导入`.
+5. Select the audited SRT and confirm the system file dialog.
+6. Verify that Jianying created a `本地字幕` material card whose displayed filename matches the audited SRT. This proves only that the file entered the material panel.
+7. Drag that exact local-subtitle card into the timeline. Do not claim success merely because the card exists.
+8. Prove the caption-track count changes `1 → 2`, and verify the new track's caption count, first text, last text, and timing against the audited SRT.
+9. Only after the new track is verified, remove the old raw-caption track and prove the count changes `2 → 1`.
+10. Reapply style if import resets it, then export and audit the surviving caption track.
 
 When caption-file import is absent or unverified, keep the original timing segments and perform semantic redistribution in the caption list. Keep the cleaned SRT as a backup, not as proof that the live project changed.
 
 ## 9. Export the final SRT backup
 
 1. Save the live project after semantic edits and duplicate cleanup.
-2. Export the edited caption track as `captions_semantic_final.srt`.
+2. Open the top-right `导出` dialog, disable video and audio export, enable `字幕导出`, choose `SRT` with `Unicode / UTF-8`, and export the edited caption track as `captions_semantic_final.srt`.
 3. Parse the exported file and report its entry count and final end time.
 4. Run `scripts/audit_semantic_srt.py captions_matched_raw.srt captions_semantic_final.srt`.
 5. If the exported final SRT does not match the live caption list, do not report the backup as final; repair the export or label it accurately.
@@ -150,6 +156,7 @@ Verify all of the following before reporting completion:
 - captions cover the narration from start to finish;
 - the requested style appears at the beginning, middle, and end;
 - adjacent exact duplicate captions equal zero;
+- no caption ends in `，。；：,.;:`, including before trailing `」』”’）》〉）】`; `？！?!` remain permitted;
 - normalized final text covers the raw Manuscript Match text exactly once and in order, apart from approved terminal style punctuation;
 - no row consists only of punctuation or an unmatched closing quote;
 - semantic boundaries follow the manuscript rather than arbitrary ASR fragments;
@@ -167,4 +174,4 @@ When the narration and captions are stable but picture selection remains weak, h
 - [references/jianying-ui.md](references/jianying-ui.md): Jianying UI mapping, accessibility behavior, and recovery rules.
 - [references/caption-editing.md](references/caption-editing.md): semantic segmentation and duplicate-prevention heuristics.
 - `scripts/merge_adjacent_srt.py`: audit or merge adjacent identical SRT entries without losing their combined time span.
-- `scripts/audit_semantic_srt.py`: verify text coverage, ordering, duplicates, punctuation-only rows, quote balance, length, and reading-speed warnings.
+- `scripts/audit_semantic_srt.py`: verify text coverage, ordering, duplicates, punctuation-only rows, forbidden terminal punctuation, quote balance, length, and reading-speed warnings.

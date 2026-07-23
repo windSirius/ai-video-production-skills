@@ -13,11 +13,11 @@ Treat controls whose accessible name, title, identifier, description, or visible
 - If it overlaps a required control, use a previously verified accessibility, menu, keyboard, scrolling, or layout route whose target is not the assistant. If no such route exists, close the action with `forbidden_ui_route_unavailable`; do not improvise through its bounds.
 - No harness token, recipe, user-interface guess, or later user unblock can waive this exclusion.
 
-Every live `prepare` requires `--ui-route-preflight PATH`. The schema-v1 JSON is valid for at most ten minutes and binds the route to the exact action key, registered recipe, required-control name from `ACTION_REGISTRY`, window signature, UI recipe profile, pre-observation SHA-256, and all pre-evidence SHA-256 values. It must use that action's registered `ui_route_id`, and its observed targets must contain one of the action's registered semantic anchor terms. A recipe or route name is not evidence: if current Jianying does not expose the required semantic control, stop and calibrate it from read-only AX/hit-test evidence before production.
+Every live `prepare` requires `--ui-route-preflight PATH`. The schema-v1 JSON is valid for at most ten minutes and binds the route to the exact action key, registered recipe, required-control name from `ACTION_REGISTRY`, window signature, UI recipe profile, pre-observation SHA-256, and all pre-evidence SHA-256 values. It must use that action's registered `ui_route_id`, and its observed targets must contain one of the action's registered semantic anchor terms. Actions with `ui_required_step_checkpoints` must match every checkpoint in order and with the registered action type; for example, a required local-subtitle-card `drag` cannot be replaced by a click. A recipe or route name is not evidence: if current Jianying does not expose the required semantic control, stop and calibrate it from read-only AX/hit-test evidence before production.
 
 Every planned target requires a strong semantic identity, a nonempty accessibility ancestor path, and the allowed `window_signature` for that individual step. Multi-screen recipes such as save → home → reopen must declare their layout transition step by step; they are not forced to reuse the initial editor signature. Record currently visible Jianying Assistant regions with label and bounds. Role-only, generic, unrelated, or assistant-descended targets are rejected. Keep `"forbidden_targets_interacted": []`. A blocked, malformed, stale, or weak route persistently blocks the harness and receives no mutation token.
 
-Do not hand-author the interaction trace. After `begin`, capture a hit-test snapshot no more than ten seconds before each intended UI operation. It must repeat the planned step with its actual semantic target, ancestor chain, bounds, hit point, current window signature, and all currently visible forbidden regions. Run `authorize-ui-step`; only a successful one-use authorization permits that exact next action. Immediately after the action, run `complete-ui-step` with fresh evidence. If a response is lost between authorization and completion, inspect the UI and do not repeat the action.
+Do not hand-author the interaction trace. After `begin`, capture a hit-test snapshot no more than thirty seconds before each intended UI operation. Capture the hit-test and call `authorize-ui-step` in one execution envelope so model/tool latency cannot consume the freshness window. It must repeat the planned step with its actual semantic target, ancestor chain, bounds, hit point, current window signature, and all currently visible forbidden regions. Run `authorize-ui-step`; only a successful one-use authorization permits that exact next action. A stale hit-test authorizes nothing and leaves the action in progress so it can be recaptured without a user unblock. Immediately after the action, run `complete-ui-step` with fresh evidence. If a response is lost between authorization and completion, inspect the UI and do not repeat the action.
 
 Every live `verify` or `fail` requires the canonical harness-managed trace path from `harness/ui_traces/`. The trace source is `harness_controlled_ui_executor` and it binds to the exact batch, token, action, recipe, preflight hash, pre-observation hash, window signature, UI profile, route ID, one-use authorizations, hit-test snapshots, and fresh step evidence. Successful verification requires an exact step-for-step match to the pre-approved route; failure may seal only its exact completed prefix. Unknown targets, incomplete coverage, extra or changed steps, an outstanding authorization, a hand-authored trace, or a normalized match to a forbidden label blocks the action. Unicode width, whitespace, punctuation, nested metadata, ancestor labels, and prefix variations do not bypass matching.
 
@@ -28,7 +28,7 @@ Minimal preflight:
   "schema_version": 1,
   "captured_at": "2026-07-23T08:00:00+12:00",
   "action_key": "caption_canonical_export",
-  "recipe_id": "jianying.caption-only-export.v1",
+  "recipe_id": "jianying.caption-only-export.v2",
   "required_control": "仅导出字幕",
   "window_signature": "1920x1080-main-v1",
   "ui_recipe_profile": "jianying-macos-observed-v1",
@@ -36,7 +36,7 @@ Minimal preflight:
   "evidence_sha256": ["<sha256 of preflight screenshot or AX snapshot>"],
   "status": "available",
   "selected_route": {
-    "route_id": "caption-export-accessibility-v1",
+    "route_id": "caption-export-accessibility-v2",
     "method": "accessibility",
     "steps": [
       {
@@ -66,6 +66,24 @@ Minimal preflight:
           "name": "字幕导出",
           "identifier": "caption-export",
           "visible_text": "字幕导出",
+          "ancestor_path": [
+            {
+              "role": "AXWindow",
+              "name": "导出",
+              "identifier": "jianying-export-window"
+            }
+          ]
+        }
+      },
+      {
+        "sequence": 3,
+        "action": "confirm",
+        "window_signature": "jianying-export-dialog-v1",
+        "target": {
+          "role": "AXButton",
+          "name": "ExportOkBtn",
+          "identifier": "caption-export-confirm",
+          "visible_text": "导出",
           "ancestor_path": [
             {
               "role": "AXWindow",
@@ -127,6 +145,8 @@ The identifiers and coordinates above illustrate the schema only; they are not r
 
 If a token-bound preflight changes or disappears before `begin`, the open action is persistently blocked. `unblock` cannot reuse the old route: a live action requires restored-state evidence plus a fresh `--ui-route-preflight`. Harness-state schema v1 runs migrate to harness-state schema v2 automatically; any open legacy live action is blocked until that same restoration-and-fresh-route procedure succeeds.
 
+`navigate_caption_ui` deliberately permits a measured window-signature change while all project fields remain identical. A legacy or already-open navigation action that was blocked solely because its frozen expectation required the window signature to stay the same may be closed with `resolve-caption-navigation --authorized-by user` only after its exact managed route is complete and a fresh post-observation proves the requested `visible_panel` plus unchanged timeline counts and protected lanes.
+
 ## Required command loop
 
 Run this loop for every production mutation:
@@ -135,13 +155,25 @@ Run this loop for every production mutation:
 2. Obey the single `next_action` object. Ignore any remembered plan that conflicts with it.
 3. If it says `prepare`, prepare exactly one registered action with a pre-observation, evidence, and a non-assistant UI route preflight. Preparation does not authorize a mutation.
 4. Run the returned `begin` command. Its token authorizes only the named recipe and mutation class.
-5. For each planned UI step: capture a fresh hit-test JSON; run `authorize-ui-step RUN_DIR --token TOKEN --hit-test HIT_TEST.json`; perform exactly the returned one step; then run `complete-ui-step RUN_DIR --token TOKEN --authorization UI_STEP_TOKEN --evidence FRESH_STEP_EVIDENCE`. Never batch multiple clicks under one authorization.
+5. For each planned UI step: capture a fresh hit-test JSON and run `authorize-ui-step RUN_DIR --token TOKEN --hit-test HIT_TEST.json` in one execution envelope; perform exactly the returned one step; then run `complete-ui-step RUN_DIR --token TOKEN --authorization UI_STEP_TOKEN --evidence FRESH_STEP_EVIDENCE`. Never batch multiple clicks under one authorization. If authorization rejects only `ui_evidence_stale`, recapture immediately; do not request a user decision because no UI step was authorized.
 6. Capture a fresh post-observation and action evidence. Call `verify` with the canonical trace path emitted under `harness/ui_traces/`; or call `fail`, which may seal only a completed prefix of that same managed trace.
 7. Resume again. Never choose a second action while one is prepared, in progress, awaiting repair, or blocked.
 
 If `resume` returns `inspect_authorized_ui_step`, inspect the live project before doing anything else. Do not click that step again: the previous process may have completed it before losing its response. If it returns `inspect_pending_action`, inspect the live project and verify or fail the existing token without repeating the mutation.
 
 If it returns any `recover_*` action, run `python3 scripts/harness.py recover RUN_DIR`. Recovery reconciles the write-ahead action journal, ledger, and state; it never repeats a production mutation.
+
+If the user manually advances Jianying, stop the active recipe. Capture the current live observation and evidence, obtain explicit user authority, and run the following from either a ready run with no open action or an untouched open live action whose managed trace has no pending authorization and zero completed authorizations:
+
+```bash
+python3 scripts/harness.py adopt-live-baseline RUN_DIR \
+  --authorized-by user \
+  --reason "user manually advanced the live draft" \
+  --observation CURRENT_STATE.json \
+  --evidence CURRENT_SCREENSHOT.png
+```
+
+With an untouched open action, this closes it as `cancelled_no_mutation`; with a ready run, it records a `B####` baseline without adding a production ledger row. Both routes create a user-authored baseline checkpoint and make no claim about how the user's changes were produced. It is forbidden after any agent UI step was authorized or completed; those cases require inspection plus normal verify/fail recovery.
 
 ## Live observation schema
 
@@ -170,7 +202,7 @@ Every live pre-state, post-state, and rollback observation is a JSON object cont
 }
 ```
 
-Add action-specific observable fields such as `visible_picture_filename` or `reopened`. Obtain counts and names from fresh Jianying UI state, exported SRT, or an accessibility query. `window_signature` describes stable window geometry and panel layout, not changing video pixels. Recalibrate the registered recipe when bundle version or layout signature changes, and record that preflight before setting `ui_recipe_calibrated=true`. Do not copy expected values into the observation without measuring them.
+Add action-specific observable fields such as `visible_picture_filename`, `reopened`, or `narration_end_timecode`. Measure `narration_end_timecode` from the narration lane; do not reuse `project_timecode` after picture or BGM media exists because another lane may be longer. Obtain counts and names from fresh Jianying UI state, exported SRT, or an accessibility query. A user-authored baseline may declare an unmeasurable count as `null` only when the field is listed in `unresolved_measurements`. The registered `caption_backup_export` action alone may begin with `caption_count` unresolved; its post-observation must late-bind a measured integer from the exported SRT. `window_signature` describes stable window geometry and panel layout, not changing video pixels. Recalibrate the registered recipe when bundle version or layout signature changes, and record that preflight before setting `ui_recipe_calibrated=true`. Do not copy expected values into the observation without measuring them.
 
 Evidence files must exist, be nonempty, and, for post-state verification, be newer than `ACTION_BEGUN`. A narration file count, manifest, or BGM provenance report cannot prove a live caption, picture, or BGM mutation.
 
@@ -185,14 +217,16 @@ All live registry actions inherit the permanent Jianying Assistant exclusion. It
 | `offline_artifact` | `offline.objective-check.v1` | Use a verification-plan check that explicitly declares the matching mutation and observed targets; the checked output must be newer than `ACTION_BEGUN`. |
 | `adopt_verified_artifact` | `offline.adopt-objective-check.v1` | Read-only adoption of an existing artifact. Use a `none.adopt` check and strong hash; never claim the artifact was generated in this action. |
 | `rename_unicode` | `jianying.ax-or-clipboard-unicode.v1` | Use a verified accessibility value setter or clipboard route for Chinese; do not retry raw keystroke guesses. |
-| `append_narration_clip` | `jianying.media-identity-quick-add.v1` | Verify basename, probed duration, and SHA before selecting the media card; select the identified card, click its visible `+`, go to End, and prove clip count plus exact cumulative end. Never infer identity from left/right card position. |
+| `append_narration_clip` | `jianying.media-identity-quick-add.v1` | Verify basename, probed duration, and SHA before selecting the media card; select the identified card, click its visible `+`, go to End, and prove clip count plus exact cumulative end. The first clip may create the narration track (`0 → 1`); later clips must keep it at one. Never infer identity from left/right card position. |
 | `append_narration_loop` | `jianying.media-identity-quick-add-loop.v1` | Available only after two consecutive single-item successes. Use `narration_loop_items_per_batch`, one manifest with every basename and expected cumulative end, and stop/undo at the first mismatch. |
-| `caption_replace_atomic` | `jianying.caption-export-remove-import-export.v1` | Export raw backup → lock protected lanes → remove raw track → prove caption-track count 0 → import semantic SRT → export canonical SRT → run the bound `srt_integrity` objective check. Never allow raw and semantic tracks to coexist. Do not style before this passes. |
+| `caption_replace_atomic` | `jianying.caption-text-local-import-drag-verify-remove-export.v3` | Require the ordered route `文本 → 新建文本 → 导入本地字幕 → 系统导入 → 拖动本地字幕素材卡 → 删除旧字幕轨 → 仅字幕再导出`. Verify that import first leaves track count at one while creating the named local-subtitle card, dragging changes tracks `1 → 2`, and old-track removal changes them `2 → 1`. Run the bound `srt_integrity` check with the exact terminal-punctuation policy. |
+| `caption_backup_export` | `jianying.caption-only-export-backup.v2` | In the top-right export dialog disable video/audio, enable `字幕导出`, select `SRT` and `Unicode / UTF-8`, then export the untouched live subtitle track to `captions/captions_matched_raw.srt`. This action may late-bind an initially unresolved `caption_count`; all protected lanes and timeline duration must remain unchanged. |
+| `navigate_caption_ui` | `jianying.caption-ui-navigation.v1` | Navigate or close one verified non-destructive caption-related panel while proving every timeline count and protected lane remains unchanged. Bind an exact `visible_panel` expectation; do not combine it with caption mutation. |
 | `apply_picture_master` | `jianying.equal-duration-replace-clip.v1` | Verify the stable regular-file media identity and timing contract, use `替换片段`, and prove unchanged duration and protected lanes plus the visible new filename. Never use the timeline `+` control to add a track. |
-| `apply_bgm_master` | `jianying.music-provenance-quick-add.v1` | Require canonical `audio/bgm_manifest.json` and a passing resolved-path provenance check before import. |
+| `apply_bgm_master` | `jianying.music-provenance-quick-add.v1` | Require canonical `audio/bgm_manifest.json` and a passing resolved-path provenance check before import. The first BGM clip may create its track (`0 → 1`). |
 | `align_fullspan_tail` | `jianying.single-split-delete-tail.v1` | Use the canonical timing contract. Split once at the target frame and delete only the selected tail. This action can pass at most once in a run. |
 | `cleanup_extra_timelines` | `jianying.delete-nonauthoritative-timeline.v1` | Delete only a verified non-authoritative timeline and prove the authoritative timeline remains with `timeline_count=1`. |
-| `caption_canonical_export` | `jianying.caption-only-export.v1` | Confirm video/audio export is off and captions are on; bind `--objective-check-id` to an `srt_integrity` check for the fresh exported file. |
+| `caption_canonical_export` | `jianying.caption-only-export.v2` | Confirm video/audio export is off, captions are on, format is `SRT`, and encoding is `Unicode / UTF-8`; bind `--objective-check-id` to an `srt_integrity` check for the fresh exported file with the exact terminal-punctuation policy. |
 | `live_qa_capture` | `jianying.open-middle-final-evidence.v1` | Capture distinct non-black opening, representative middle, and final-spoken-line frames with companion live-state JSON; bind an `image_evidence_set` objective check. |
 | `save_reopen_verify` | `jianying.save-home-reopen-verify.v1` | Save, return home or close the draft, reopen it, and remeasure project/timeline names, end time, counts, locks, and visible media. |
 
@@ -209,24 +243,46 @@ The transaction log supplied to `verify --transaction-log` must contain:
 ```json
 {
   "events": [
-    "raw_backup_exported",
+    "raw_backup_verified",
+    "semantic_srt_audited",
+    "local_subtitle_card_verified",
+    "semantic_track_dragged_verified",
     "raw_track_removed",
-    "semantic_imported",
     "canonical_exported"
   ],
-  "caption_track_counts": [1, 0, 1],
+  "caption_track_counts": [1, 1, 2, 1],
   "exact_overlap_count": 0,
   "final_caption_count": 331,
   "raw_backup": "/absolute/path/raw_backup.srt",
-  "canonical_export": "/absolute/path/canonical.srt"
+  "imported_srt": "/absolute/path/audited_semantic.srt",
+  "local_subtitle_card_name": "audited_semantic.srt",
+  "canonical_export": "/absolute/path/canonical.srt",
+  "subtitle_export_settings": {
+    "video_export": false,
+    "audio_export": false,
+    "caption_export": true,
+    "format": "SRT",
+    "encoding": "Unicode / UTF-8"
+  }
 }
 ```
 
-Use the `srt_integrity` objective check before styling or picture matching. Require exact expected count, continuous indices, ordered-text SHA when known, lexical equality with the locked narration text, valid ordered time ranges, no forbidden overlap, no adjacent exact duplicate, and final-end tolerance. A nonempty audit JSON or “zero adjacent duplicate” check alone is not sufficient.
+The first two track-count observations must both be one: choosing an SRT creates a `本地字幕` material card but does not add captions to the timeline. Only the card drag may create the second track. The `imported_srt` path must match the stable media identity prepared for the action, and `local_subtitle_card_name` must equal its basename.
+
+Use the `srt_integrity` objective check before styling or picture matching. Require exact expected count, continuous indices, ordered-text SHA when known, punctuation-insensitive lexical equality with the locked narration text, valid ordered time ranges, no forbidden overlap, no adjacent exact duplicate, and final-end tolerance. The check must also declare this exact policy:
+
+```json
+{
+  "forbidden_terminal_punctuation": ["，", "。", "：", "；", ",", ".", ":", ";"],
+  "terminal_closing_marks": ["」", "』", "”", "’", "》", "〉", "）", "】"]
+}
+```
+
+The gate rejects any caption whose effective ending is `，。；：,.;:`. It first skips trailing closing marks, so `；」` and `。」` also fail; `？！?!` remain valid. `caption_replace_atomic` and `caption_canonical_export` fail during `prepare` when the policy is absent or altered, and `srt_integrity` fails again if the exported file violates it. A nonempty audit JSON or “zero adjacent duplicate” check alone is not sufficient.
 
 ## One frame clock
 
-Freeze one `timing_contract.json` before full-span picture or BGM work:
+Import and verify every narration WAV first. Then freeze one `timing_contract.json` from Jianying's measured live narration-end timecode before full-span picture or BGM work:
 
 ```json
 {
@@ -237,7 +293,9 @@ Freeze one `timing_contract.json` before full-span picture or BGM work:
 }
 ```
 
-Use the actual run values. Narration end, picture master, BGM master, and live timeline must all derive from this contract. Do not independently trim narration, picture, and BGM by eye. A deviation greater than one frame requires rollback and regeneration; a one-frame import rounding error may use the single tail-alignment action once.
+The live observation must contain an independently measured `narration_end_timecode`. Use `scripts/freeze_live_timing_contract.py --observation LIVE_STATE.json --output timing_contract.json --expected-narration-clips N`. Use the actual run values. Jianying can quantize every imported WAV independently, so the arithmetic sum of source durations is diagnostic only and must not define the full-span frame count. Caption cues govern sentence-level picture boundaries; a caption end before narration produces an intentional final-picture hold, while a caption end more than one frame after narration is invalid. Picture master, BGM master, and live timeline must derive from the frozen live end. Do not independently trim narration, picture, and BGM by eye.
+
+Create or replace `timing_contract.json` only inside a prepared `offline_artifact` action bound to `timing_contract_live_clock`, using `offline_artifacts_per_batch=1`. If an existing contract predates that unit limit or check, update the request contract and verification plan only with explicit user authority, then `rebind` before opening the offline action. Run the freeze script with `--force` only when a contract already exists; it writes a timestamped recoverable backup and records that backup under `supersedes`. Then verify the fresh contract before rendering picture or BGM. A downstream deviation greater than one frame requires rollback and regeneration; a one-frame import rounding error may use the single tail-alignment action once.
 
 ## Failure budget
 
@@ -248,7 +306,9 @@ Use the actual run values. Narration end, picture master, BGM master, and live t
 - Three failures in one phase or six in the run block the harness.
 - Protected-state change, inconclusive mutation state, contract/plan drift, BGM provenance failure, or an unrecoverable action blocks immediately.
 - `forbidden_ui_route_unavailable` and `forbidden_ui_interaction` block immediately and never receive an automatic retry.
+- A stale pre-authorization hit-test is a retryable evidence error, not a block, because it authorized and executed nothing.
 - A block requires an explicit user decision. `unblock --authorized-by user` reopens the same logical action and does not erase history; a live action also requires a fresh observation/evidence proving the complete pre-state was restored.
+- When the user has independently changed the live draft, use `adopt-live-baseline` from a ready run, or from an untouched open action whose managed trace proves zero agent authorizations and completions, instead of forcing restoration. An untouched action receives the neutral ledger status `cancelled_no_mutation`; a ready run receives a baseline-only `B####` checkpoint. Neither route increments action success or recipe streaks.
 
 Do not respond to failure by inventing a drag direction, hotspot, coordinate, keyboard shortcut, menu sequence, or new mutation class. Calibrate an unknown UI route only in an isolated scratch timeline, at most twice, and delete the scratch timeline with verified count restoration before touching the authoritative timeline. Record a proven route as a reviewed registry change before production use.
 
