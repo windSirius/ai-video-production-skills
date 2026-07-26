@@ -112,7 +112,9 @@ Every ordinary row still requires selected-shot review. The scalable route reduc
 
 `build_candidate_review_sheets.py` must emit both the trusted-file JSON manifest and `selected_evidence_manifest.tsv`. The JSON starts at `READY_FOR_REVIEW`; each selected-sheet range and each TSV `visual_review` cell stays pending until a reviewer has inspected the listed hash-bound evidence. Review completion updates the TSV hash, covers every cue exactly once through `range_reviews`, and cannot inherit approval from an older match-sheet hash.
 
-## Review manifest minimum
+## Review manifest illustration
+
+The JSON below is abridged to show the required top-level bindings and one evidence-frame record. It is not a copy-ready passing manifest: a real file must list every selected cue and the complete A/B/C × head/mid/tail evidence matrix for every risk cue.
 
 ```json
 {
@@ -153,6 +155,7 @@ Every ordinary row still requires selected-shot review. The scalable route reduc
       "view": "B",
       "sample": "mid",
       "candidate_id": "<stable-id>",
+      "source_id": "<stable-source-id>",
       "source_file": "<absolute-path>",
       "source_in": 61.2,
       "source_out": 64.8,
