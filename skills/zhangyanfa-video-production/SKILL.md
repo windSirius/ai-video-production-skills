@@ -1,6 +1,6 @@
 ---
 name: zhangyanfa-video-production
-description: "Run Alan's modular ‘障眼法考据’ video-production pipeline from complete game-mission recording analysis to a verified Jianying Pro draft: use Apple Vision to parse a supplied recording from start to finish into an evidence-backed mission-flow and Claude handoff before manuscript writing; then adapt scripts, clone narration, build or freeze captions, match footage sentence by sentence with visual and OCR evidence, safely replace an equal-duration picture track, apply Alan's style, select BGM exclusively from the configured local music root, and perform acceptance QA. Use for 游戏任务录屏解析, Apple Vision剧情流程识别, 给Claude准备任务事实底稿, 一条龙制作, 从录屏到文稿再到剪映, 根据剪映字幕重新配画, 参考视频开头结尾, or continuing any verified production module."
+description: "Run Alan's modular ‘障眼法考据’ video-production pipeline from complete game-mission recording analysis to a verified Jianying Pro draft: use Apple Vision to build an evidence-backed mission flow and Claude handoff; then adapt scripts, clone narration, freeze captions, run indexed bulk sentence-to-shot retrieval with layered visual review and hash-bound repairs, safely replace an equal-duration picture track, apply Alan's style, select BGM only from the configured local music root, and perform acceptance QA. Use for 游戏任务录屏解析, Apple Vision剧情流程识别, 给Claude准备任务事实底稿, 一条龙制作, 从录屏到文稿再到剪映, 批量逐句配画, 根据剪映字幕重新配画, 参考视频开头结尾, or continuing any verified production module."
 ---
 
 # 障眼法视频一条龙
@@ -119,15 +119,21 @@ Read [references/ocr-caption-visual-workflow.md](references/ocr-caption-visual-w
 
 ### 5. Retrieve and match visuals
 
+- Use the `indexed_bulk_reviewed_v1` profile for a full rebuild or roughly 30 or more visual units. Treat every caption as an independent semantic query, but search the complete Vision/OCR corpus and generate one full provisional plan in a single bounded `build_match_plan` stage. One Harness unit is one plan, not one subtitle row.
+- Keep `match_rows_per_batch=1` only for a few focused corrections. Do not register a full plan as `offline_artifact`; use `build_visual_index`, `build_match_plan`, `review_match_plan`, `repair_match_plan`, `render_picture_master`, and `patch_picture_master`.
 - Probe every source, then build coarse and dense visual indexes plus an OCR index of visible Chinese and English text. Use `scripts/vision_ocr.swift` on extracted frames when macOS Vision is available.
-- Treat every caption or short semantic unit as an independent retrieval problem. Preserve every caption exactly once; merge adjacent lines only for visual continuity and normally keep a unit under six seconds.
-- Retrieve at least three distinct candidates per unit whenever possible. Rank subject, action, location, emotion, narrative function, exact on-screen dialogue/evidence, source chronology, transition safety, and prior reuse.
+- Preserve every caption exactly once; merge adjacent lines only for visual continuity and normally keep a unit under six seconds.
+- Retain a complete configurable candidate pool, normally 32–64 viable results when the source supports it, then expose at least three distinct A/B/C candidates per unit. Rank subject, action, location, emotion, narrative function, exact on-screen dialogue/evidence, source chronology, transition safety, and prior reuse.
 - Penalize menus, task lists, settings, logos, loading screens, long UI text, black/overexposed transitions, source heads/tails, repeated emotional shots, and footage that merely shares a character while contradicting the sentence.
 - If local candidates remain weak after the expansion ladder, use the external-sourcing rules in [references/external-sourcing.md](references/external-sourcing.md).
-- Record exact source in/out, candidate scores, confidence, retry round, reuse group, and selection reason.
-- Audit the completed match sheet before applying it.
+- Optimize provisional selections across the whole timeline for exact-range reuse, adjacency, chronology, hook/climax shot budgets, and continuity. Machine output must remain `machine_proposed`; it cannot approve itself.
+- Review a selected-shot contact sheet for every unit. Review A/B/C head/middle/tail evidence for named identities, quotations, cards/external assets, low-confidence or OCR-collision rows, repeated/overlapping ranges, opening, ending, and every user-reported correction.
+- Verify visible character identity independently from OCR or dialogue. A frame that mentions a name does not prove that the named character is on screen.
+- Bind the candidate pool, match sheet, selected review, repair decisions, render manifest, and QA to the current SRT/index/match-sheet hashes. A changed match sheet invalidates prior review and audit files unless a declared delta chain proves the unchanged rows.
+- Record exact source in/out, candidate scores, original machine confidence, retry evidence, reuse group, selected candidate ID, review state, and selection reason. Do not overwrite an initially weak machine score with a later human decision.
+- Require complete selected review, risk-row candidate review, identity resolution, global range/reuse audits, and independent opening/ending PASS before rendering.
 - When a reference video is supplied, inspect its opening and ending separately and transfer only its structural grammar: hook density, evidence timing, emotional release, and final-image function. Do not copy its shot order blindly.
-- Prefer an equal-duration, picture-only intermediate render for large deterministic rebuilds; replace the main picture clip without touching audio, BGM, or caption lanes.
+- Prefer an equal-duration, picture-only intermediate render for large deterministic rebuilds. After feedback, patch only declared cue/range IDs, preserve recoverable prior generations, re-review changed rows, rerun global audits, and prove unchanged ranges before replacing the main picture clip.
 
 ### 6. Apply 障眼法 grammar
 
@@ -162,8 +168,8 @@ Do not advance past a failed gate:
 - **Recording analysis:** source probe and sampling coverage pass; every input frame has a Vision result or explicit error; the mission-flow covers the full recording with evidence-linked rows; Claude handoffs exist; missing audio-only dialogue and uncertain OCR are unresolved rather than invented.
 - **Narration:** every numbered WAV exists, opens, has nonzero duration, and covers its segment in order.
 - **Captions:** coverage reaches the narration end; ordinary style is consistent; adjacent exact duplicates equal zero; an SRT backup exists when replacement risk exists.
-- **Match plan:** every spoken unit has a selected source or intentional card; low-confidence rows completed a retry pass; reuse and duration audits pass.
-- **Match plan evidence:** every row is backed by visual or OCR evidence, has three distinct candidates when possible, and records why the selected frame proves or supports the sentence.
+- **Match plan:** every spoken unit has a selected source or intentional card; its selected candidate exists in the retained pool; weak rows have actual expansion evidence; reuse, overlap, reverse-order, UI/black, and duration audits pass.
+- **Match plan evidence:** every selected row was visually reviewed; every risk row has A/B/C evidence; named-character rows have an explicit identity verdict; opening and ending reviews pass; all evidence and repairs bind to the current generation hashes with zero unresolved rows.
 - **Picture:** resolution, frame rate, frame count, and duration are plausible; strict black-gap detection passes; the render has no audio stream; live replacement filename is visible.
 - **Audio provenance:** every BGM manifest source exists, is absolute, resolves inside the configured BGM root, and passes `bgm_sources_within_music`. No external, generated, downloaded, or footage-extracted source is allowed.
 - **Audio mix:** narration remains foreground; BGM settings are verified on the intended track; no final-LUFS claim without export measurement.

@@ -214,8 +214,14 @@ All live registry actions inherit the permanent Jianying Assistant exclusion. It
 
 | Action key | Fixed recipe | Critical rule |
 |---|---|---|
-| `offline_artifact` | `offline.objective-check.v1` | Use a verification-plan check that explicitly declares the matching mutation and observed targets; the checked output must be newer than `ACTION_BEGUN`. |
+| `offline_artifact` | `offline.objective-check.v1` | Use a verification-plan check that explicitly declares the matching mutation and observed targets; the checked output must be newer than `ACTION_BEGUN`. Under `indexed_bulk_reviewed_v1`, it cannot target anything in `visuals/` or any recognized visual-workflow artifact name. |
 | `adopt_verified_artifact` | `offline.adopt-objective-check.v1` | Read-only adoption of an existing artifact. Use a `none.adopt` check and strong hash; never claim the artifact was generated in this action. |
+| `build_visual_index` | `offline.indexed-vision-ocr-corpus.v1` | Build one normalized, source-identified Vision/OCR corpus under `visual_indexes_per_batch=1`; bind only to `visual_index_integrity`. |
+| `build_match_plan` | `offline.indexed-three-candidate-plan.v1` | Build one complete provisional match generation under `match_plans_per_batch=1`; every row must remain `machine_proposed`, retain the full candidate pool (32 preferred; fewer requires documented expansion evidence), and bind only to `visual_match_plan_integrity`. One plan may cover the whole SRT, but every cue remains independently checkable. |
+| `review_match_plan` | `offline.selected-and-risk-contact-review.v1` | Produce one complete review bundle under `match_review_bundles_per_batch=1`; selected evidence covers all cues and A/B/C plus identity evidence covers derived risk rows. Bind only to `visual_selection_review_integrity`. |
+| `repair_match_plan` | `offline.match-plan-incremental-repair.v1` | Apply one base-hash-bound repair set under `match_repair_sets_per_batch=1`; declare exact changed cues, preserve machine history, rebind every repaired selection to the after-candidate-pool, and bind only to `visual_match_repair_integrity`. |
+| `render_picture_master` | `offline.equal-duration-picture-master.v1` | Render one current-generation, reviewed, exact-frame, video-only master under `picture_masters_per_batch=1`; bind only to `picture_master_integrity`. |
+| `patch_picture_master` | `offline.picture-master-incremental-patch.v1` | Patch one declared set of cues/frame ranges under `picture_patches_per_batch=1`; prove base/output lineage, decoded-frame-derived changed and unchanged segment hashes, renewed reviews, and full frame contract with `picture_patch_integrity`. `verify_decoded_segment_hashes=true` is mandatory. |
 | `rename_unicode` | `jianying.ax-or-clipboard-unicode.v1` | Use a verified accessibility value setter or clipboard route for Chinese; do not retry raw keystroke guesses. |
 | `append_narration_clip` | `jianying.media-identity-quick-add.v1` | Verify basename, probed duration, and SHA before selecting the media card; select the identified card, click its visible `+`, go to End, and prove clip count plus exact cumulative end. The first clip may create the narration track (`0 → 1`); later clips must keep it at one. Never infer identity from left/right card position. |
 | `append_narration_loop` | `jianying.media-identity-quick-add-loop.v1` | Available only after two consecutive single-item successes. Use `narration_loop_items_per_batch`, one manifest with every basename and expected cumulative end, and stop/undo at the first mismatch. |
@@ -229,6 +235,39 @@ All live registry actions inherit the permanent Jianying Assistant exclusion. It
 | `caption_canonical_export` | `jianying.caption-only-export.v2` | Confirm video/audio export is off, captions are on, format is `SRT`, and encoding is `Unicode / UTF-8`; bind `--objective-check-id` to an `srt_integrity` check for the fresh exported file with the exact terminal-punctuation policy. |
 | `live_qa_capture` | `jianying.open-middle-final-evidence.v1` | Capture distinct non-black opening, representative middle, and final-spoken-line frames with companion live-state JSON; bind an `image_evidence_set` objective check. |
 | `save_reopen_verify` | `jianying.save-home-reopen-verify.v1` | Save, return home or close the draft, reopen it, and remeasure project/timeline names, end time, counts, locks, and visible media. |
+
+## Indexed bulk visual workflow
+
+For a full picture rebuild, the Harness unit is one complete stage transaction, not one caption row:
+
+```text
+build_visual_index
+  → build_match_plan
+  → review_match_plan
+  → zero or more repair_match_plan + renewed review
+  → render_picture_master
+  → zero or more repair_match_plan + patch_picture_master
+  → apply_picture_master
+```
+
+`scripts/init_run.py` writes `visuals/indexed_bulk_checks.template.json` with all six strict check definitions. Copy the current stage checks into `verification_plan.json`, replace versioned snapshot/output paths, then `rebind`; do not omit required flags to simplify a run.
+
+The six offline actions require their registered primary check type and a currently passing prerequisite check from the preceding stage. `prepare`, `begin`, and `verify` rerun prerequisite checks and require their configured paths to match the current primary check: index files → plan, match sheet/pool → review, review sheet/pool → repair, approval/current sheet → render, and repair/prior approved media → patch. When several generations pass, Harness selects the passing prerequisite whose bound paths match the current generation instead of accepting the first old result. A full plan may not use `offline_artifact` to disguise hundreds of cue rows as one generic output. In the indexed profile, the generic action is denied for the entire `visuals/` target domain, including innocuous renamed files such as `visuals/plan.tsv`. Keep `match_rows_per_batch=1` only for the focused few-cue fallback.
+
+The machine proposal is never the approval gate. Require:
+
+- a retained candidate pool and exact canonical-SRT coverage;
+- selected-shot evidence for every cue;
+- A/B/C head/middle/tail evidence for risk rows;
+- explicit visual identity review for named-character claims;
+- separate sequence-level opening and ending reviews;
+- zero unresolved rows before render;
+- current hashes for the SRT, index, pool, match sheet, review, repair, timing contract, and render;
+- exact declared cue/frame deltas for every patch.
+- decoded-frame hashes for every unchanged and changed patch span;
+- path and hash lineage that prevents a PASS artifact from an older generation approving a newer sheet, pool, or picture.
+
+Objective checks can prove coverage, source/range consistency, evidence existence, hashes, frame contracts, and whether a human-judgment field was recorded. They cannot infer that a character identification is semantically correct merely because an agent-authored JSON says `PASS`; the reviewer verdict and its concrete image evidence remain an explicit human-judgment gate.
 
 ## Media identity rule
 

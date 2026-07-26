@@ -47,8 +47,16 @@ Use `scripts/run_objective_checks.py` with only these safe check types:
 - `media_frame_contract`: probed media frame count, FPS, duration, and stream policy match the canonical timing contract.
 - `live_state_assert`: a captured Jianying state contains required project, timeline, timecode, and track fields and satisfies explicit assertions.
 - `image_evidence_set`: opening/middle/ending images are numerous enough, distinct, non-black, and paired with live-state JSON.
+- `visual_index_integrity`: independently recount the normalized shot/OCR index, resolve every source ID through the source manifest, verify source and index hashes, and require the declared contact-sheet evidence.
+- `visual_match_plan_integrity`: compare the complete match sheet with the canonical SRT; verify order, text, time ranges, distinct stable candidate IDs, evidence/source validity, selected-candidate lineage, retained-pool binding, duration coverage, retry evidence, reuse limits, and current shot/OCR/source-index hashes.
+- `visual_selection_review_integrity`: bind a versioned review manifest to the current match sheet and candidate pool; recompute cue/risk coverage, require listed selected evidence plus each risk cue's A/B/C × head/mid/tail frame matrix bound to stable candidate IDs/source ranges, identity-review records, and opening/ending sequence reviews. Use `allow_unresolved=true` only as the prerequisite to a declared repair action; render requires zero unresolved rows.
+- `visual_match_repair_integrity`: compare the before and after match sheets and candidate pools, require the actual changed cue set to equal the repair manifest, verify base/result hashes and added-candidate lineage, rebind every after-row selection to an after-pool candidate with the same source ID/file/range, and reject hidden changes.
+- `picture_master_integrity`: bind the output media and segment/render manifests to the current match sheet, review manifest, and timing contract; require exact frames/FPS/dimensions, one video stream, zero audio streams, full decode, and strict black-event review.
+- `picture_patch_integrity`: verify base/output media hashes, exact declared cue/frame changes, renewed affected-row reviews, and the complete output frame contract. With the mandatory `verify_decoded_segment_hashes=true`, decode both videos, recompute every cue-span digest, and reject self-reported segment hashes, hidden changes, shifted spans, or declared patches whose pixels did not change.
 
 Paths are relative to the run directory unless absolute. The checker never executes commands supplied by the plan.
+
+For `indexed_bulk_reviewed_v1`, use the specialized visual checks as the primary checks for their registered Harness actions. Do not substitute `file_nonempty`, `json_assert`, or an agent-authored audit summary; those types cannot independently prove row coverage, evidence lineage, or hidden match-sheet changes.
 
 Example:
 

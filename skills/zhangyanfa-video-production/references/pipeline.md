@@ -9,8 +9,8 @@
 | Manuscript | source MD/TXT/PDF/DOCX | `clean_script.md`, `segments.md` | ordered coverage exactly once |
 | VoxCPM | reference WAV, exact transcript, segments | numbered WAVs, WAV manifest, QA | every clip valid; ASR coverage plausible |
 | Caption spine | WAVs, clean script, open draft | sequential narration, live-derived `timing_contract.json`, captions, SRT backup | ordered WAV count, measured live integer-frame end, start/end coverage, and zero adjacent duplicates |
-| Visual retrieval | immutable user-adjusted SRT, source footage, optional reference video | coarse/dense visual index, OCR index, contact sheets, audited three-candidate match sheet | every caption covered exactly once; OCR/visual/reuse audit passes |
-| Picture rebuild | audited match sheet | equal-duration picture-only render | metadata, gaps, and duration verified |
+| Visual retrieval | immutable user-adjusted SRT, source footage, optional reference video | normalized index, retained candidate pool, provisional full match plan, selected/risk contact sheets, hash-bound review and repair manifests | every caption covered exactly once; all selected shots reviewed; risk, identity, opening, ending, range, reuse, and lineage gates pass |
+| Picture rebuild | reviewed current-generation match sheet | equal-duration picture-only render plus render lineage | metadata, frame contract, black/decode, input-hash, and review-hash gates pass |
 | BGM selection | recursive configured BGM-root inventory (`AI_VIDEO_MUSIC_ROOT`, default `$HOME/Music`) and stable narration | `audio/bgm_manifest.json`, chapter derivatives | every source resolves inside the configured root; provenance check passes |
 | Style | stable picture, narration, and verified Music-folder BGM | styled draft, cards, chapter BGM | visible hook/evidence/turn/thesis checks pass |
 | Acceptance | current draft and feedback | edit ledger, QA artifacts, report | every P0/P1 row has evidence-backed status |
@@ -33,14 +33,15 @@
 - Recording analysis: one source chunk, one Vision pass, one OCR event group, or one mission-flow chapter per batch; never combine frame extraction, semantic assembly, and manuscript writing.
 - VoxCPM: one generated segment per batch.
 - Caption repair: at most ten adjacent rows and one defect class per batch.
-- Visual retrieval: one caption or sub-six-second semantic unit per batch; complete visual/OCR retrieval, three candidates, scoring, and reuse accounting before the next unit.
-- Picture application: one narrative section or one equal-duration replacement per batch, never picture plus caption mutation together.
+- Visual retrieval, long-form default: one complete index, one full provisional match-plan generation, one review bundle, or one hash-bound repair set per Harness batch. Every caption remains a separate retrieval query inside the plan. Machine proposal, human/visual review, repair, and render are separate actions and may not be collapsed into `offline_artifact`.
+- Visual retrieval, focused fallback: one caption or sub-six-second semantic unit per batch under `match_rows_per_batch=1`; use this only for a few corrections when a complete normalized index is unavailable.
+- Picture generation: one current-generation equal-duration master or one declared incremental patch per batch. Picture application is one live replacement and never includes caption mutation.
 - Evidence cards: one card per batch.
 - BGM source selection: one Music-folder source decision per batch; record provenance before rendering derivatives.
 - BGM automation: one rhetorical interval per batch.
 - Live Jianying: one mutation class, then fetch fresh UI state and run the linked check.
 
-Reduce these limits further after any failed assumption. Do not increase them ad hoc. The only production-loop promotion is the harness-registered narration quick-add loop after two consecutive identical successes and with per-item identity/end checks.
+The plan-level limits are still one-assumption limits: `visual_indexes_per_batch=1`, `match_plans_per_batch=1`, `match_review_bundles_per_batch=1`, `match_repair_sets_per_batch=1`, `picture_masters_per_batch=1`, and `picture_patches_per_batch=1`. Reduce limits further after any failed assumption. Do not increase them ad hoc. The only live production-loop promotion is the harness-registered narration quick-add loop after two consecutive identical successes and with per-item identity/end checks.
 
 ## Live-project recovery
 

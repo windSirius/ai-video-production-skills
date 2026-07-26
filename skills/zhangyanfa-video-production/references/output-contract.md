@@ -41,10 +41,34 @@ narration/
 captions/
   narration_backup.srt
 visuals/
+  indexed_bulk_checks.template.json
+  source_identity_manifest.json
   shot_index.tsv
   shot_ocr_index.tsv
+  visual_index_manifest.json
+  cue_profiles.json
+  candidate_pool.jsonl
   contact_sheets/
   match_sheet.tsv
+  selected_evidence/
+  contact_sheets_final/
+  candidate_review/
+    selected_evidence_manifest.tsv
+    evidence/
+    selected/
+    risk/
+  review_manifest.json
+  repair_manifest.json
+  repair_result.json
+  repair_history.jsonl
+  generation_manifest.json
+  snapshots/
+  patches/
+    base_segment_manifest.tsv
+    output_segment_manifest.tsv
+    picture_patch_manifest.json
+  render_manifest.json
+  render_segment_manifest.tsv
   picture_only_vN.mp4
   picture_render_report_vN.json
   cards_vN/
@@ -74,7 +98,7 @@ Existing project-specific names may be retained; register their paths in `run_ma
 - title, created time, updated time, current phase, and status;
 - workspace and Jianying draft name;
 - source manuscript, reference WAV, and reference transcript source;
-- narration directory, immutable SRT snapshot, OCR index, match sheet, picture render/report, reference analysis, live opening/middle/ending QA, BGM manifest/master, ledger, and report paths;
+- narration directory, immutable SRT snapshot, normalized visual-index manifest, retained candidate pool, current-generation match sheet, review and repair manifests, picture render lineage/report, reference analysis, live opening/middle/ending QA, BGM manifest/master, ledger, and report paths;
 - `bgm_source_root` fixed to the absolute root resolved from `AI_VIDEO_MUSIC_ROOT`, defaulting to `$HOME/Music`;
 - exact project timecode when known;
 - game-recording source manifest, Vision index, mission-flow timeline, Claude handoff, and recording-analysis QA paths when that module is active;
@@ -112,6 +136,7 @@ The master and chapter files may live under `RUN_DIR/audio/`, but they do not re
 - explicit in-scope and out-of-scope lists;
 - measurable success criteria, each bound to one unique check ID;
 - positive small-batch limits;
+- for `indexed_bulk_reviewed_v1`, unit limits of one visual index, one match-plan generation, one review bundle, one repair set, one picture master, or one picture patch per corresponding Harness batch; keep cue-row limits only for the focused fallback;
 - stop conditions for failed checks, missing authority, or invalid inputs.
 
 ## Batch ledger minimum
@@ -131,6 +156,7 @@ Let `scripts/harness.py` create and close `H####` rows. Require `unit_count` to 
 - each live action has immutable before, failed/post, and rollback checkpoints when applicable;
 - each live action records the action/recipe/pre-state-bound registered route fingerprint, exact semantic target/ancestor/per-step-layout sequence, just-in-time bounds and hit points, per-step pre-click authorization and evidence, and the complete harness-managed interaction-trace fingerprint;
 - each verifier result records batch, mutation, check, observed target, fresh evidence hashes, metrics, and pass state;
+- visual review, repair, render, and patch artifacts bind to the exact current SRT/index/pool/match-sheet hashes; orphan contact sheets and stale audit files are never implicitly accepted;
 - do not store the complete history only in `state.json`, and do not edit harness files manually.
 
 ## Reporting vocabulary

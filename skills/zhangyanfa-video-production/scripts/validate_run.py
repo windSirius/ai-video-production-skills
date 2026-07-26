@@ -9,7 +9,13 @@ import json
 import os
 from pathlib import Path
 
-from harness import FINAL_ACTION_ORDER, SCHEMA_VERSION, fingerprint_matches, final_order_passed
+from harness import (
+    FINAL_ACTION_ORDER,
+    SCHEMA_VERSION,
+    fingerprint_matches,
+    final_order_passed,
+    specialized_visual_targets,
+)
 from run_objective_checks import SUPPORTED_TYPES, run_plan
 
 
@@ -25,6 +31,14 @@ REQUIRED_ARTIFACT_KEYS = (
 MUSIC_SOURCE_ROOT = str(
     Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
 )
+VISUAL_WORKFLOW_RULES = {
+    "offline.visual.index": ("visual_indexes_per_batch", "visual_index_integrity"),
+    "offline.visual.match_plan": ("match_plans_per_batch", "visual_match_plan_integrity"),
+    "offline.visual.review": ("match_review_bundles_per_batch", "visual_selection_review_integrity"),
+    "offline.visual.repair": ("match_repair_sets_per_batch", "visual_match_repair_integrity"),
+    "offline.picture.render": ("picture_masters_per_batch", "picture_master_integrity"),
+    "offline.picture.patch": ("picture_patches_per_batch", "picture_patch_integrity"),
+}
 
 
 def resolve_path(root: Path, value: str) -> Path:
@@ -174,6 +188,101 @@ def validate_batch_ledger(path: Path, limits: dict, errors: list[str]) -> None:
             errors.append(f"batch line {index} unit_count={unit_count} exceeds {limit_key}={limits[limit_key]}")
 
 
+def validate_visual_workflow(
+    ledger_path: Path,
+    contract: dict,
+    plan: dict,
+    errors: list[str],
+) -> None:
+    """Conditionally enforce the indexed-bulk stage order without changing old runs."""
+
+    if not ledger_path.exists():
+        return
+    with ledger_path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    visual_rows = [
+        (index, row)
+        for index, row in enumerate(rows, start=2)
+        if row.get("status") == "pass" and row.get("mutation") in VISUAL_WORKFLOW_RULES
+    ]
+    profile = contract.get("workflow_profiles", {}).get("visual_matching")
+    checks = {
+        check.get("id"): check
+        for check in plan.get("checks", [])
+        if isinstance(check, dict)
+    }
+    if profile == "indexed_bulk_reviewed_v1":
+        for line_number, row in enumerate(rows, start=2):
+            if (
+                row.get("status") != "pass"
+                or row.get("mutation") != "offline.artifact"
+            ):
+                continue
+            check_id = row.get("check_id", "").split("+", 1)[0]
+            forbidden_targets = specialized_visual_targets(
+                checks.get(check_id, {})
+            )
+            forbidden_targets.extend(
+                specialized_visual_targets({"path": row.get("scope", "")})
+            )
+            forbidden_targets = sorted(set(forbidden_targets))
+            if forbidden_targets:
+                errors.append(
+                    f"batch line {line_number} used offline.artifact for "
+                    f"specialized visual targets={forbidden_targets}"
+                )
+    if not visual_rows:
+        return
+
+    if profile != "indexed_bulk_reviewed_v1":
+        errors.append(
+            "visual workflow actions require workflow_profiles.visual_matching="
+            "indexed_bulk_reviewed_v1"
+        )
+    limits = contract.get("unit_limits", {})
+    seen: list[str] = []
+    last_render_or_patch = -1
+    last_repair = -1
+    for sequence, (line_number, row) in enumerate(visual_rows):
+        mutation = row["mutation"]
+        limit_key, check_type = VISUAL_WORKFLOW_RULES[mutation]
+        if limits.get(limit_key) != 1:
+            errors.append(f"visual batch line {line_number} requires {limit_key}=1")
+        if row.get("unit_limit_key") != limit_key or row.get("unit_count") != "1":
+            errors.append(
+                f"visual batch line {line_number} must use {limit_key} with unit_count=1"
+            )
+        check_id = row.get("check_id", "").split("+", 1)[0]
+        if checks.get(check_id, {}).get("type") != check_type:
+            errors.append(
+                f"visual batch line {line_number} requires primary check type {check_type}"
+            )
+
+        if mutation == "offline.visual.match_plan" and "offline.visual.index" not in seen:
+            errors.append(f"visual batch line {line_number} built a plan before an index")
+        elif mutation == "offline.visual.review" and "offline.visual.match_plan" not in seen:
+            errors.append(f"visual batch line {line_number} reviewed before a match plan")
+        elif mutation == "offline.visual.repair" and "offline.visual.review" not in seen:
+            errors.append(f"visual batch line {line_number} repaired before selected review")
+        elif mutation == "offline.picture.render" and not any(
+            value in seen for value in ("offline.visual.review", "offline.visual.repair")
+        ):
+            errors.append(f"visual batch line {line_number} rendered before review")
+        elif mutation == "offline.picture.patch":
+            if last_render_or_patch < 0:
+                errors.append(f"visual batch line {line_number} patched before a base master")
+            if last_repair <= last_render_or_patch:
+                errors.append(
+                    f"visual batch line {line_number} has no post-master declared repair"
+                )
+
+        seen.append(mutation)
+        if mutation == "offline.visual.repair":
+            last_repair = sequence
+        if mutation in {"offline.picture.render", "offline.picture.patch"}:
+            last_render_or_patch = sequence
+
+
 def validate_harness(root: Path, final: bool, errors: list[str]) -> dict:
     state = load_json(root / "harness/state.json", errors)
     if not state:
@@ -241,6 +350,7 @@ def main() -> int:
 
     validate_tsv_status(root / "edit_ledger.tsv", ("done", "waived"), errors, "P0/P1 ledger", {"P0", "P1"})
     validate_batch_ledger(root / "batch_ledger.tsv", contract.get("unit_limits", {}), errors)
+    validate_visual_workflow(root / "batch_ledger.tsv", contract, plan, errors)
 
     if manifest.get("status") != "complete":
         errors.append("run_manifest status must be complete for final validation")
