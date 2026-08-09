@@ -13,11 +13,18 @@ from pathlib import Path
 SUBDIRS = (
     "narration",
     "captions",
+    "hyperframes/project",
+    "hyperframes/chunks",
+    "hyperframes/qa",
+    "hyperframes/stress",
+    "hyperframes/proxy",
+    "sources",
     "visuals/contact_sheets",
     "visuals/selected_evidence",
     "visuals/contact_sheets_final",
     "visuals/candidate_review",
     "visuals/patches",
+    "visuals/aesthetic_review",
     "visuals/snapshots",
     "audio",
     "qa",
@@ -27,6 +34,14 @@ SUBDIRS = (
 )
 MUSIC_SOURCE_ROOT = str(
     Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
+)
+SOURCE_PROXY_CACHE_ROOT = str(
+    Path(
+        os.environ.get("AI_VIDEO_SOURCE_PROXY_CACHE_ROOT")
+        or (Path.home() / "Movies" / "AI-Video-Source-Proxies")
+    )
+    .expanduser()
+    .resolve()
 )
 
 
@@ -80,9 +95,35 @@ def main() -> int:
                 "allow_external_sources": False,
                 "allow_generated_sources": False,
             },
+            "render_policy": {
+                "required_engine": "hyperframes",
+                "required_for_video_generation": True,
+                "minimum_cli_version": "0.7.101",
+                "macos_preferred_encoder": "h264_videotoolbox",
+                "standard_profile": "hyperframes_chunked_videotoolbox_v1",
+                "low_disk_profile": "hyperframes_low_disk_stream_v1",
+                "minimum_free_gib_after_render": 20,
+                "forbid_full_frame_sequence": True,
+                "jianying_picture_master_audio_policy": "video_only",
+                "source_proxy": {
+                    "profile": "1080p_cfr30_h264_gop30_yuv420p_bt709_v1",
+                    "width": 1920,
+                    "height": 1080,
+                    "fps": 30,
+                    "codec": "h264",
+                    "pixel_format": "yuv420p",
+                    "color_space": "bt709",
+                    "color_primaries": "bt709",
+                    "color_transfer": "bt709",
+                    "max_gop_frames": 30,
+                    "cache_root": SOURCE_PROXY_CACHE_ROOT,
+                    "require_outside_icloud": True,
+                },
+            },
             "success_criteria": criteria,
             "workflow_profiles": {
                 "visual_matching": "indexed_bulk_reviewed_v1",
+                "video_rendering": "hyperframes_proxy_gated_v2",
             },
             "unit_limits": {
                 "voxcpm_segments_per_batch": 1,
@@ -94,6 +135,9 @@ def main() -> int:
                 "match_repair_sets_per_batch": 1,
                 "picture_masters_per_batch": 1,
                 "picture_patches_per_batch": 1,
+                "source_proxy_manifests_per_batch": 1,
+                "hyperframes_stress_tests_per_batch": 1,
+                "aesthetic_proxy_approvals_per_batch": 1,
                 "cards_per_batch": 1,
                 "bgm_sections_per_batch": 1,
                 "offline_artifacts_per_batch": 1,
@@ -113,11 +157,28 @@ def main() -> int:
     visual_check_template = {
         "schema_version": 1,
         "workflow_profile": "indexed_bulk_reviewed_v1",
+        "video_rendering_profile": "hyperframes_proxy_gated_v2",
         "instructions": (
             "Copy the needed checks into verification_plan.json, replace "
             "versioned paths before rebind, and keep every required flag."
         ),
         "checks": [
+            {
+                "id": "source_proxy_manifest_current",
+                "type": "source_proxy_manifest_integrity",
+                "path": "sources/proxy_manifest.json",
+                "contract_path": "request_contract.json",
+                "required_profile": "1080p_cfr30_h264_gop30_yuv420p_bt709_v1",
+                "verify_source_sha256": True,
+                "verify_proxy_sha256": True,
+                "verify_max_gop_frames": True,
+                "check_full_decode": True,
+                "observes_mutations": ["offline.visual.source_proxy"],
+                "observed_targets": [
+                    "sources/proxy_manifest.json",
+                    SOURCE_PROXY_CACHE_ROOT,
+                ],
+            },
             {
                 "id": "visual_index_current",
                 "type": "visual_index_integrity",
@@ -125,6 +186,7 @@ def main() -> int:
                 "ocr_index_path": "visuals/shot_ocr_index.tsv",
                 "source_manifest_path": "visuals/source_identity_manifest.json",
                 "contact_sheet_manifest_path": "visuals/contact_sheets/manifest.json",
+                "proxy_manifest_path": "sources/proxy_manifest.json",
                 "require_frame_files": True,
                 "verify_source_sha256": True,
                 "observes_mutations": ["offline.visual.index"],
@@ -148,11 +210,17 @@ def main() -> int:
                 "require_candidate_pool": True,
                 "require_candidate_pool_evidence": True,
                 "required_qa_status": "machine_proposed",
-                "min_pool_candidates": 3,
-                "preferred_pool_candidates": 32,
+                "min_pool_candidates": 8,
+                "preferred_pool_candidates": 12,
+                "normal_pool_max_candidates": 12,
+                "risk_pool_max_candidates": 32,
+                "candidate_pool_granularity": "semantic_visual_units_v2",
                 "require_candidate_shortfall_evidence": True,
                 "require_candidate_ids": True,
                 "require_index_binding": True,
+                "require_semantic_visual_units": True,
+                "min_semantic_unit_duration_seconds": 4,
+                "max_semantic_unit_duration_seconds": 8,
                 "observes_mutations": ["offline.visual.match_plan"],
                 "observed_targets": [
                     "visuals/match_sheet.tsv",
@@ -177,6 +245,9 @@ def main() -> int:
                 "require_risk_frame_matrix": True,
                 "require_candidate_pool_binding": True,
                 "require_source_manifest_binding": True,
+                "review_granularity": "semantic_visual_units_v2",
+                "candidate_pool_granularity": "semantic_visual_units_v2",
+                "allow_unresolved": True,
                 "observes_mutations": ["offline.visual.review"],
                 "observed_targets": [
                     "visuals/review_manifest.json",
@@ -196,16 +267,81 @@ def main() -> int:
                 "source_manifest_path": "visuals/source_identity_manifest.json",
                 "require_repair_evidence": True,
                 "require_candidate_pool_evidence": True,
-                "min_pool_candidates": 3,
-                "preferred_pool_candidates": 32,
+                "min_pool_candidates": 8,
+                "preferred_pool_candidates": 12,
+                "normal_pool_max_candidates": 12,
+                "risk_pool_max_candidates": 32,
+                "candidate_pool_granularity": "semantic_visual_units_v2",
+                "review_granularity": "semantic_visual_units_v2",
                 "require_candidate_shortfall_evidence": True,
                 "require_repair_sequence_gates": True,
                 "require_source_manifest_binding": True,
+                "require_semantic_visual_units": True,
+                "min_semantic_unit_duration_seconds": 4,
+                "max_semantic_unit_duration_seconds": 8,
                 "observes_mutations": ["offline.visual.repair"],
                 "observed_targets": [
                     "visuals/repair_result.json",
                     "visuals/match_sheet.tsv",
                     "visuals/candidate_pool.jsonl",
+                ],
+            },
+            {
+                "id": "hyperframes_stress_test_current",
+                "type": "hyperframes_stress_test_integrity",
+                "path": "hyperframes/stress/stress_manifest.json",
+                "sample_path": "hyperframes/stress/stress_sample.mp4",
+                "source_proxy_manifest_path": "sources/proxy_manifest.json",
+                "match_sheet_path": "visuals/match_sheet.tsv",
+                "composition_path": "hyperframes/composition.json",
+                "render_plan_path": "hyperframes/render_plan.json",
+                "required_engine": "hyperframes",
+                "minimum_duration_seconds": 30,
+                "maximum_duration_seconds": 60,
+                "check_full_decode": True,
+                "check_black_frames": True,
+                "check_transition_seams": True,
+                "required_risk_classes": [
+                    "shortest_unit",
+                    "hard_cut",
+                    "media_element_activation",
+                ],
+                "require_all_declared_asset_classes": True,
+                "observes_mutations": ["offline.picture.stress_test"],
+                "observed_targets": [
+                    "hyperframes/stress/stress_manifest.json",
+                    "hyperframes/stress/stress_sample.mp4",
+                ],
+            },
+            {
+                "id": "aesthetic_proxy_approval_current",
+                "type": "aesthetic_proxy_approval_integrity",
+                "path": "visuals/aesthetic_review/approval.json",
+                "proxy_path": "hyperframes/proxy/aesthetic_proxy_720p.mp4",
+                "stress_manifest_path": "hyperframes/stress/stress_manifest.json",
+                "match_sheet_path": "visuals/match_sheet.tsv",
+                "composition_path": "hyperframes/composition.json",
+                "render_plan_path": "hyperframes/render_plan.json",
+                "required_engine": "hyperframes",
+                "expected_width": 1280,
+                "expected_height": 720,
+                "require_opening_review": True,
+                "require_middle_review": True,
+                "require_ending_review": True,
+                "required_decisions": [
+                    "opening_structure",
+                    "ending_structure",
+                    "geometry",
+                    "typography",
+                    "motion",
+                    "pace",
+                    "uid",
+                    "framing",
+                ],
+                "observes_mutations": ["offline.picture.aesthetic_proxy"],
+                "observed_targets": [
+                    "visuals/aesthetic_review/approval.json",
+                    "hyperframes/proxy/aesthetic_proxy_720p.mp4",
                 ],
             },
             {
@@ -217,7 +353,13 @@ def main() -> int:
                 "approval_path": "visuals/review_manifest.json",
                 "timing_contract_path": "timing_contract.json",
                 "segment_manifest_path": "visuals/render_segment_manifest.tsv",
+                "aesthetic_proxy_approval_path": "visuals/aesthetic_review/approval.json",
+                "composition_path": "hyperframes/composition.json",
+                "render_plan_path": "hyperframes/render_plan.json",
                 "check_black_frames": True,
+                "check_full_decode": True,
+                "check_transition_seams": True,
+                "render_unit_mode": "semantic_visual_units_v2",
                 "require_segment_manifest": True,
                 "require_approval_match_binding": True,
                 "require_approval_sequence_gates": True,
@@ -241,9 +383,15 @@ def main() -> int:
                 "output_picture_path": "visuals/patches/picture_only_patched.mp4",
                 "base_segment_manifest_path": "visuals/render_segment_manifest.tsv",
                 "output_segment_manifest_path": "visuals/patches/output_segment_manifest.tsv",
-                "require_segment_manifests": True,
+                "chunk_verification_manifest_path": "visuals/patches/chunk_verification_manifest.json",
+                "require_segment_manifests": False,
                 "check_black_frames": True,
-                "verify_decoded_segment_hashes": True,
+                "patch_verification_mode": "chunk_scoped_v2",
+                "verify_decoded_segment_hashes": False,
+                "verify_unchanged_chunk_sha256": True,
+                "verify_changed_chunk_decoded_frames": True,
+                "check_final_decode": True,
+                "check_transition_seams": True,
                 "observes_mutations": ["offline.picture.patch"],
                 "observed_targets": [
                     "visuals/patches/patch_manifest.json",
@@ -360,6 +508,7 @@ def main() -> int:
             "bgm_source_root": MUSIC_SOURCE_ROOT,
             "workflow_profiles": {
                 "visual_matching": "indexed_bulk_reviewed_v1",
+                "video_rendering": "hyperframes_proxy_gated_v2",
             },
             "export_authorized": False,
             "artifacts": {
@@ -383,6 +532,18 @@ def main() -> int:
                 "picture_render_manifest": "",
                 "picture_render": "",
                 "picture_patch_manifest": "",
+                "source_proxy_manifest": str(root / "sources/proxy_manifest.json"),
+                "hyperframes_stress_manifest": str(
+                    root / "hyperframes/stress/stress_manifest.json"
+                ),
+                "aesthetic_proxy_approval": str(
+                    root / "visuals/aesthetic_review/approval.json"
+                ),
+                "hyperframes_project": str(root / "hyperframes/project"),
+                "hyperframes_environment": str(root / "hyperframes/environment.json"),
+                "hyperframes_render_plan": str(root / "hyperframes/render_plan.json"),
+                "hyperframes_check_result": str(root / "hyperframes/check_result.json"),
+                "hyperframes_render_manifest": str(root / "hyperframes/render_manifest.json"),
                 "bgm": "",
                 "bgm_manifest": str(root / "audio/bgm_manifest.json"),
                 "source_ledger": str(root / "sources.tsv"),
@@ -397,11 +558,24 @@ def main() -> int:
         "visual_matching",
         "indexed_bulk_reviewed_v1",
     )
+    manifest.setdefault("workflow_profiles", {}).setdefault(
+        "video_rendering",
+        "hyperframes_proxy_gated_v2",
+    )
     artifacts.setdefault("harness_state", str(root / "harness/state.json"))
     artifacts.setdefault("harness_events", str(root / "harness/events.jsonl"))
     artifacts.setdefault("harness_close_result", str(root / "harness/close_result.json"))
     artifacts.setdefault("bgm_manifest", str(root / "audio/bgm_manifest.json"))
     artifacts.setdefault("visual_index_manifest", "")
+    artifacts.setdefault("source_proxy_manifest", str(root / "sources/proxy_manifest.json"))
+    artifacts.setdefault(
+        "hyperframes_stress_manifest",
+        str(root / "hyperframes/stress/stress_manifest.json"),
+    )
+    artifacts.setdefault(
+        "aesthetic_proxy_approval",
+        str(root / "visuals/aesthetic_review/approval.json"),
+    )
     artifacts.setdefault(
         "indexed_visual_check_template",
         str(root / "visuals/indexed_bulk_checks.template.json"),
@@ -411,6 +585,11 @@ def main() -> int:
     artifacts.setdefault("picture_render_manifest", "")
     artifacts.setdefault("picture_render", "")
     artifacts.setdefault("picture_patch_manifest", "")
+    artifacts.setdefault("hyperframes_project", str(root / "hyperframes/project"))
+    artifacts.setdefault("hyperframes_environment", str(root / "hyperframes/environment.json"))
+    artifacts.setdefault("hyperframes_render_plan", str(root / "hyperframes/render_plan.json"))
+    artifacts.setdefault("hyperframes_check_result", str(root / "hyperframes/check_result.json"))
+    artifacts.setdefault("hyperframes_render_manifest", str(root / "hyperframes/render_manifest.json"))
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     write_if_missing(

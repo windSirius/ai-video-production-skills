@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -19,11 +20,16 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from run_objective_checks import (
     CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION,
     CAPTION_TRAILING_CLOSING_MARKS,
+    assert_json_values,
     decoded_frame_hashes,
+    decoded_frame_sha256,
+    decoded_frame_sequence_sha256,
     file_sha256,
     frame_slice_sha256,
     read_tsv,
     run_check,
+    semantic_candidate_pool_failures,
+    semantic_review_failures,
 )
 from validate_run import validate_batch_ledger
 from harness import (
@@ -34,6 +40,7 @@ from harness import (
     compare_observations,
     fingerprint,
     sha256_file,
+    run_check_cached,
     utc_now,
     validate_caption_terminal_punctuation_policy,
     validate_caption_transaction,
@@ -104,6 +111,69 @@ class HarnessTest(unittest.TestCase):
             text=True,
             check=False,
         )
+
+    def test_json_assert_eq_field_compares_two_fields(self) -> None:
+        assertions = [
+            {
+                "field": "claim_count",
+                "op": "eq_field",
+                "value": "supported_claim_count",
+            }
+        ]
+        self.assertEqual(
+            assert_json_values(
+                {"claim_count": 7, "supported_claim_count": 7},
+                assertions,
+            ),
+            [],
+        )
+        self.assertIn(
+            "claim_count=7, expected value of supported_claim_count=6",
+            assert_json_values(
+                {"claim_count": 7, "supported_claim_count": 6},
+                assertions,
+            ),
+        )
+
+    def test_json_assert_required_fields_support_dotted_paths(self) -> None:
+        payload_path = self.root / "nested.json"
+        payload_path.write_text(
+            json.dumps({"status": "PASS", "summary": {"units": 7}}),
+            encoding="utf-8",
+        )
+        check = {
+            "id": "nested_required_fields",
+            "type": "json_assert",
+            "path": "nested.json",
+            "required_fields": ["status", "summary.units"],
+            "assertions": [
+                {"field": "summary.units", "op": "eq", "value": 7}
+            ],
+        }
+        passed, detail, metrics = run_check(self.root, check)
+        self.assertTrue(passed, detail)
+        self.assertEqual(metrics["failures"], [])
+
+    def test_advance_rejects_mutable_run_manifest_artifact(self) -> None:
+        completed = self.run_command(
+            HARNESS,
+            "advance",
+            self.root,
+            "--to-phase",
+            "manuscript",
+            "--check-id",
+            "request_contract_exists",
+            "--artifact",
+            "run_manifest.json",
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn(
+            "run_manifest.json is mutable control-plane state",
+            completed.stderr,
+        )
+        state = json.loads((self.root / "harness/state.json").read_text())
+        self.assertEqual(state["phase"], "intake")
+        self.assertEqual(state["lifecycle"], "ready")
 
     def write_json(self, name: str, value: object) -> Path:
         path = self.root / name
@@ -699,6 +769,71 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(rebound.returncode, 0, rebound.stderr)
         resumed = self.run_command(HARNESS, "resume", self.root)
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
+
+    def test_rebind_can_retain_only_a_blocked_offline_action(self) -> None:
+        state_path = self.root / "harness/state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["lifecycle"] = "blocked"
+        state["blocked"] = {
+            "reason_code": "check_failed",
+            "reason": "review needs a corrected allow_unresolved check",
+        }
+        state["open_action"] = {
+            "batch_id": "H9999",
+            "action_key": "offline_artifact",
+            "recipe_id": "offline.objective-check.v1",
+        }
+        state["next_action"] = {"kind": "request_user_decision"}
+        state_path.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        plan_path = self.root / "verification_plan.json"
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan["checks"][0]["rebound_marker"] = True
+        plan_path.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        rebound = self.run_command(
+            HARNESS,
+            "rebind",
+            self.root,
+            "--authorized-by",
+            "user",
+            "--reason",
+            "用户授权修正已阻塞离线审查的校验计划",
+        )
+        self.assertEqual(rebound.returncode, 0, rebound.stderr)
+        rebound_state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(rebound_state["lifecycle"], "blocked")
+        self.assertEqual(
+            rebound_state["open_action"]["batch_id"],
+            "H9999",
+        )
+        self.assertIsNotNone(rebound_state["blocked"])
+        self.assertEqual(
+            rebound_state["verification_plan_fingerprint"],
+            fingerprint(plan_path),
+        )
+
+        rebound_state["open_action"]["action_key"] = "rename_unicode"
+        state_path.write_text(
+            json.dumps(rebound_state, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        rejected = self.run_command(
+            HARNESS,
+            "rebind",
+            self.root,
+            "--authorized-by",
+            "user",
+            "--reason",
+            "实时动作不允许这种恢复",
+        )
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("blocked offline action", rejected.stderr)
 
     def test_contract_only_validation_accepts_initialized_harness(self) -> None:
         completed = self.run_command(VALIDATE, self.root, "--contract-only")
@@ -1702,6 +1837,41 @@ class HarnessTest(unittest.TestCase):
         }
         passed, _, metrics = run_check(self.root, check)
         self.assertTrue(passed, metrics)
+        proxy_manifest = self.write_json(
+            "sources/index_proxy_manifest.json",
+            {
+                "sources": [
+                    {
+                        "source_id": "SRC1",
+                        "proxy_path": str(source),
+                    }
+                ]
+            },
+        )
+        source_data = json.loads(source_manifest.read_text(encoding="utf-8"))
+        source_data["source_proxy_manifest_sha256"] = file_sha256(proxy_manifest)
+        source_manifest.write_text(json.dumps(source_data), encoding="utf-8")
+        check["proxy_manifest_path"] = str(proxy_manifest)
+        passed, _, metrics = run_check(self.root, check)
+        self.assertTrue(passed, metrics)
+        proxy_manifest.write_text(
+            json.dumps(
+                {
+                    "sources": [
+                        {"source_id": "SRC1", "proxy_path": str(source)}
+                    ],
+                    "revision": 2,
+                }
+            ),
+            encoding="utf-8",
+        )
+        passed, _, metrics = run_check(self.root, check)
+        self.assertFalse(passed)
+        self.assertTrue(
+            any("stale source-proxy" in item for item in metrics["failures"])
+        )
+        source_data["source_proxy_manifest_sha256"] = file_sha256(proxy_manifest)
+        source_manifest.write_text(json.dumps(source_data), encoding="utf-8")
         frame.unlink()
         passed, _, metrics = run_check(self.root, check)
         self.assertFalse(passed)
@@ -2664,6 +2834,34 @@ class HarnessTest(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             return output
 
+        def render_color(name: str, color: str) -> Path:
+            output = self.root / name
+            output.parent.mkdir(parents=True, exist_ok=True)
+            completed = subprocess.run(
+                [
+                    ffmpeg,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    f"color=c={color}:s=64x64:r=10:d=0.5",
+                    "-an",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-y",
+                    str(output),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            return output
+
         base_picture = render_halves("visuals/picture_base.mp4", "red", "green")
         approval = Path(fixture["review_manifest"])
         approval_data = json.loads(approval.read_text(encoding="utf-8"))
@@ -2857,6 +3055,77 @@ class HarnessTest(unittest.TestCase):
         passed, _, metrics = run_check(self.root, patch_check)
         self.assertTrue(passed, metrics)
 
+        base_chunk_1 = render_color("visuals/chunks/base_001.mp4", "red")
+        output_chunk_1 = render_color("visuals/chunks/output_001.mp4", "blue")
+        shared_chunk_2 = render_color("visuals/chunks/shared_002.mp4", "green")
+        base_chunk_1_decoded, _ = decoded_frame_sequence_sha256(base_chunk_1)
+        output_chunk_1_decoded, _ = decoded_frame_sequence_sha256(output_chunk_1)
+        shared_chunk_decoded, _ = decoded_frame_sequence_sha256(shared_chunk_2)
+        chunk_manifest = self.write_json(
+            "visuals/patches/chunk_verification_manifest.json",
+            {
+                "schema_version": 1,
+                "status": "PASS",
+                "base_picture_sha256": file_sha256(base_picture),
+                "output_picture_sha256": file_sha256(output_picture),
+                "changed_chunk_ids": ["001"],
+                "chunks": [
+                    {
+                        "chunk_id": "001",
+                        "state": "changed",
+                        "output_start_frame": 0,
+                        "output_end_frame": 5,
+                        "base_chunk_path": str(base_chunk_1),
+                        "output_chunk_path": str(output_chunk_1),
+                        "base_sha256": file_sha256(base_chunk_1),
+                        "output_sha256": file_sha256(output_chunk_1),
+                        "base_decoded_sha256": base_chunk_1_decoded,
+                        "output_decoded_sha256": output_chunk_1_decoded,
+                        "changed_cue_ids": [1],
+                    },
+                    {
+                        "chunk_id": "002",
+                        "state": "unchanged",
+                        "output_start_frame": 5,
+                        "output_end_frame": 10,
+                        "base_chunk_path": str(shared_chunk_2),
+                        "output_chunk_path": str(shared_chunk_2),
+                        "base_sha256": file_sha256(shared_chunk_2),
+                        "output_sha256": file_sha256(shared_chunk_2),
+                        "base_decoded_sha256": shared_chunk_decoded,
+                        "output_decoded_sha256": shared_chunk_decoded,
+                        "changed_cue_ids": [],
+                    },
+                ],
+            },
+        )
+        patch_manifest_data = json.loads(
+            patch_manifest.read_text(encoding="utf-8")
+        )
+        patch_manifest_data["chunk_verification_manifest_sha256"] = file_sha256(
+            chunk_manifest
+        )
+        patch_manifest.write_text(
+            json.dumps(patch_manifest_data, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        chunk_patch_check = {
+            **patch_check,
+            "patch_verification_mode": "chunk_scoped_v2",
+            "chunk_verification_manifest_path": str(chunk_manifest),
+            "require_segment_manifests": False,
+            "verify_decoded_segment_hashes": False,
+            "verify_unchanged_chunk_sha256": True,
+            "verify_changed_chunk_decoded_frames": True,
+            "check_final_decode": True,
+            "check_transition_seams": True,
+        }
+        passed, _, metrics = run_check(self.root, chunk_patch_check)
+        self.assertTrue(passed, metrics)
+        self.assertEqual(metrics["unchanged_chunk_sha_verified"], 1)
+        self.assertEqual(metrics["changed_chunk_decoded_verified"], 1)
+        self.assertTrue(metrics["final_decode_pass"])
+
         repair_approval_data = json.loads(
             repair_approval.read_text(encoding="utf-8")
         )
@@ -2971,6 +3240,74 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout.strip(), str((Path.home() / "Music").resolve()))
 
+    def test_custom_music_and_proxy_roots_flow_through_new_run_contract(self) -> None:
+        custom_music = Path(self.temporary.name) / "music"
+        custom_proxy = Path(self.temporary.name) / "source-proxies"
+        custom_music.mkdir()
+        custom_proxy.mkdir()
+        custom_root = Path(self.temporary.name) / "custom-run"
+        environment = os.environ.copy()
+        environment["AI_VIDEO_MUSIC_ROOT"] = str(custom_music)
+        environment["AI_VIDEO_SOURCE_PROXY_CACHE_ROOT"] = str(custom_proxy)
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(INIT),
+                "--root",
+                str(custom_root),
+                "--title",
+                "自定义路径测试",
+                "--objective",
+                "得到一个可验证草稿",
+                "--deliverable",
+                "草稿",
+                "--in-scope",
+                "剪映草稿",
+                "--out-of-scope",
+                "最终导出",
+                "--success-criterion",
+                "合同存在::request_contract_exists",
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        contract = json.loads(
+            (custom_root / "request_contract.json").read_text(encoding="utf-8")
+        )
+        plan = json.loads(
+            (custom_root / "verification_plan.json").read_text(encoding="utf-8")
+        )
+        manifest = json.loads(
+            (custom_root / "run_manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            contract["bgm_policy"]["source_root"], str(custom_music.resolve())
+        )
+        self.assertEqual(
+            contract["render_policy"]["source_proxy"]["cache_root"],
+            str(custom_proxy.resolve()),
+        )
+        self.assertEqual(manifest["bgm_source_root"], str(custom_music.resolve()))
+        bgm_check = next(
+            check
+            for check in plan["checks"]
+            if check["id"] == "bgm_sources_within_music"
+        )
+        self.assertEqual(bgm_check["source_root"], str(custom_music.resolve()))
+
+        validated = subprocess.run(
+            [sys.executable, str(VALIDATE), str(custom_root), "--contract-only"],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(validated.returncode, 0, validated.stderr or validated.stdout)
+
     def test_srt_integrity_catches_count_and_coverage(self) -> None:
         reference = self.root / "clean_script.md"
         reference.write_text("你好世界", encoding="utf-8")
@@ -2992,6 +3329,31 @@ class HarnessTest(unittest.TestCase):
         check["expected_count"] = 3
         passed, _, _ = run_check(self.root, check)
         self.assertFalse(passed)
+
+    def test_srt_integrity_accepts_legacy_final_end_tolerance_seconds(self) -> None:
+        reference = self.root / "clean_script.md"
+        reference.write_text("完整字幕", encoding="utf-8")
+        srt = self.root / "captions/legacy-tolerance.srt"
+        srt.write_text(
+            "1\n00:00:00,000 --> 00:00:35,040\n完整字幕\n",
+            encoding="utf-8",
+        )
+        check = {
+            "id": "caption_legacy_tolerance_gate",
+            "type": "srt_integrity",
+            "path": "captions/legacy-tolerance.srt",
+            "expected_count": 1,
+            "reference_text_path": "clean_script.md",
+            "expected_end_seconds": 45.0,
+            "final_end_tolerance_seconds": 15.0,
+            "forbidden_terminal_punctuation": list(
+                CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION
+            ),
+            "terminal_closing_marks": list(CAPTION_TRAILING_CLOSING_MARKS),
+        }
+        passed, detail, metrics = run_check(self.root, check)
+        self.assertTrue(passed, detail)
+        self.assertEqual(metrics["final_end"], 35.04)
 
     def test_srt_integrity_rejects_forbidden_terminal_punctuation_before_closer(self) -> None:
         reference = self.root / "clean_script.md"
@@ -3173,6 +3535,9 @@ class HarnessTest(unittest.TestCase):
             (self.root / "request_contract.json").read_text(encoding="utf-8")
         )
         expected_limits = {
+            "source_proxy_manifests_per_batch",
+            "hyperframes_stress_tests_per_batch",
+            "aesthetic_proxy_approvals_per_batch",
             "visual_indexes_per_batch",
             "match_plans_per_batch",
             "match_review_bundles_per_batch",
@@ -3185,6 +3550,9 @@ class HarnessTest(unittest.TestCase):
             expected_limits,
         )
         expected_actions = {
+            "normalize_source_proxies": "source_proxy_manifest_integrity",
+            "run_hyperframes_stress_test": "hyperframes_stress_test_integrity",
+            "approve_aesthetic_proxy": "aesthetic_proxy_approval_integrity",
             "build_visual_index": "visual_index_integrity",
             "build_match_plan": "visual_match_plan_integrity",
             "review_match_plan": "visual_selection_review_integrity",
@@ -3198,10 +3566,21 @@ class HarnessTest(unittest.TestCase):
                 / "visuals/indexed_bulk_checks.template.json"
             ).read_text(encoding="utf-8")
         )
+        self.assertTrue((self.root / "sources").is_dir())
+        self.assertEqual(
+            visual_template.get("video_rendering_profile"),
+            "hyperframes_proxy_gated_v2",
+        )
         self.assertEqual(
             len(visual_template.get("checks", [])),
-            6,
+            9,
         )
+        review_check = next(
+            check
+            for check in visual_template["checks"]
+            if check["id"] == "visual_review_current"
+        )
+        self.assertIs(review_check.get("allow_unresolved"), True)
         for action_key, check_type in expected_actions.items():
             self.assertEqual(
                 ACTION_REGISTRY[action_key]["allowed_primary_types"],
@@ -3209,8 +3588,8 @@ class HarnessTest(unittest.TestCase):
             )
         self.assertIs(
             ACTION_REGISTRY["patch_picture_master"][
-                "required_primary_config_values"
-            ]["verify_decoded_segment_hashes"],
+                "required_primary_config_values_by_profile"
+            ]["hyperframes_required_v1"]["verify_decoded_segment_hashes"],
             True,
         )
         match_plan_config = ACTION_REGISTRY["build_match_plan"][
@@ -3221,6 +3600,14 @@ class HarnessTest(unittest.TestCase):
         self.assertIs(
             match_plan_config["require_candidate_shortfall_evidence"],
             True,
+        )
+
+        # Preserve the legacy-v1 action path in this regression; v2 gates are
+        # covered independently below.
+        contract["workflow_profiles"]["video_rendering"] = "hyperframes_required_v1"
+        (self.root / "request_contract.json").write_text(
+            json.dumps(contract, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
 
         plan_path = self.root / "verification_plan.json"
@@ -3409,6 +3796,52 @@ class HarnessTest(unittest.TestCase):
     def test_generation_binding_selects_matching_newer_prerequisite(
         self,
     ) -> None:
+        review_primary = {
+            "match_sheet_path": "visuals/match_repaired.tsv",
+            "candidate_pool_path": "visuals/pool_repaired.jsonl",
+            "source_manifest_path": "visuals/sources.json",
+        }
+        review_results = [
+            {
+                "attempts": [
+                    {
+                        "check_id": "plan_old",
+                        "type": "visual_match_plan_integrity",
+                        "check_config": {
+                            "path": "visuals/match_old.tsv",
+                            "candidate_pool_path": "visuals/pool_old.jsonl",
+                            "source_manifest_path": "visuals/sources.json",
+                        },
+                        "pass": True,
+                        "required_metric_failures": [],
+                    },
+                    {
+                        "check_id": "repair_current",
+                        "type": "visual_match_repair_integrity",
+                        "check_config": {
+                            "after_match_sheet_path": "visuals/match_repaired.tsv",
+                            "after_candidate_pool_path": "visuals/pool_repaired.jsonl",
+                            "source_manifest_path": "visuals/sources.json",
+                        },
+                        "pass": True,
+                        "required_metric_failures": [],
+                    },
+                ],
+                "selected": {},
+            }
+        ]
+        validate_prerequisite_config_bindings(
+            self.root,
+            review_primary,
+            review_results,
+            ACTION_REGISTRY["review_match_plan"][
+                "prerequisite_config_bindings"
+            ],
+        )
+        self.assertEqual(
+            review_results[0]["selected"]["check_id"], "repair_current"
+        )
+
         render_primary = {
             "approval_path": "visuals/repair_new.json",
             "match_sheet_path": "visuals/match_new.tsv",
@@ -3500,6 +3933,415 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(
             patch_results[0]["selected"]["check_id"], "patch_1"
         )
+
+    def test_expensive_objective_check_cache_reuses_stat_bound_pass(self) -> None:
+        artifact = self.evidence("visuals/cache_probe.mp4")
+        check = {
+            "id": "cache_probe",
+            "type": "picture_master_integrity",
+            "path": str(artifact),
+        }
+        with patch(
+            "harness.run_check",
+            return_value=(True, "verified once", {"sha256": file_sha256(artifact)}),
+        ) as mocked:
+            first = run_check_cached(self.root, check)
+            second = run_check_cached(self.root, check)
+            self.assertEqual(mocked.call_count, 1)
+            self.assertFalse(first[2]["objective_cache_reused"])
+            self.assertTrue(second[2]["objective_cache_reused"])
+            run_check_cached(self.root, check, force=True)
+            self.assertEqual(mocked.call_count, 2)
+            artifact.write_bytes(b"changed-cache-probe")
+            run_check_cached(self.root, check)
+            self.assertEqual(mocked.call_count, 3)
+
+    def test_semantic_unit_rejects_hidden_candidate_changes(self) -> None:
+        source = self.evidence("visual_sources/semantic_source.mp4")
+        base = {
+            "visual_unit_id": "U001",
+            "candidate_pool_id": "POOL-U001",
+            "candidate_a": "SRC|0-4|A",
+            "candidate_a_id": "A-ID",
+            "candidate_a_score": "9",
+            "candidate_b": "SRC|0-4|B",
+            "candidate_b_id": "B-ID",
+            "candidate_b_score": "8",
+            "candidate_c": "SRC|0-4|C",
+            "candidate_c_id": "C-ID",
+            "candidate_c_score": "7",
+            "selected_candidate": "A",
+            "selected_candidate_id": "A-ID",
+            "selected_source_id": "SRC",
+            "source_id": "SRC",
+            "source_file": str(source),
+            "source_in": "0",
+            "source_out": "4",
+            "confidence": "high",
+        }
+        rows = [
+            {**base, "caption_start": "0", "caption_end": "2"},
+            {**base, "caption_start": "2", "caption_end": "4"},
+        ]
+        candidates = [
+            {
+                "candidate_id": candidate_id,
+                "source_id": "SRC",
+                "source_file": str(source),
+                "source_in": 0,
+                "source_out": 4,
+            }
+            for candidate_id in ("A-ID", "B-ID", "C-ID")
+        ]
+        pool = [
+            {
+                "visual_unit_id": "U001",
+                "pool_id": "POOL-U001",
+                "cue_ids": [1, 2],
+                "risk_flags": ["opening", "ending"],
+                "candidates": candidates,
+            }
+        ]
+        failures, _ = semantic_candidate_pool_failures(
+            self.root,
+            rows,
+            pool,
+            normal_min_candidates=8,
+            normal_max_candidates=12,
+            risk_max_candidates=32,
+            require_evidence=False,
+        )
+        self.assertEqual(failures, [])
+        rows[1]["candidate_b_id"] = "HIDDEN-B-ID"
+        failures, _ = semantic_candidate_pool_failures(
+            self.root,
+            rows,
+            pool,
+            normal_min_candidates=8,
+            normal_max_candidates=12,
+            risk_max_candidates=32,
+            require_evidence=False,
+        )
+        self.assertTrue(any("changes shared candidate_b_id" in item for item in failures))
+
+    def test_semantic_review_binds_every_risk_frame_to_pool_candidate(self) -> None:
+        source = self.evidence("visual_sources/review_source.mp4")
+        evidence_image = self.evidence("visuals/review/semantic_evidence.png")
+        fields = [
+            "line_id",
+            "visual_unit_id",
+            "caption_start",
+            "caption_end",
+            "candidate_a_id",
+            "candidate_b_id",
+            "candidate_c_id",
+            "selected_candidate_id",
+            "source_id",
+            "source_file",
+            "source_in",
+            "source_out",
+        ]
+        shared = {
+            "visual_unit_id": "U001",
+            "candidate_a_id": "A-ID",
+            "candidate_b_id": "B-ID",
+            "candidate_c_id": "C-ID",
+            "selected_candidate_id": "A-ID",
+            "source_id": "SRC",
+            "source_file": str(source),
+            "source_in": "0",
+            "source_out": "4",
+        }
+        match = self.write_tsv(
+            "visuals/semantic_review_match.tsv",
+            fields,
+            [
+                {**shared, "line_id": 1, "caption_start": 0, "caption_end": 2},
+                {**shared, "line_id": 2, "caption_start": 2, "caption_end": 4},
+            ],
+        )
+        evidence_manifest = self.write_tsv(
+            "visuals/review/selected.tsv",
+            [
+                "visual_unit_id",
+                "cue_ids",
+                "selected_candidate_id",
+                "source_id",
+                "source_file",
+                "source_in",
+                "source_out",
+                "timestamp",
+                "evidence_image",
+                "evidence_sha256",
+                "visual_review",
+            ],
+            [
+                {
+                    "visual_unit_id": "U001",
+                    "cue_ids": "1|2",
+                    "selected_candidate_id": "A-ID",
+                    "source_id": "SRC",
+                    "source_file": str(source),
+                    "source_in": 0,
+                    "source_out": 4,
+                    "timestamp": 2,
+                    "evidence_image": str(evidence_image),
+                    "evidence_sha256": file_sha256(evidence_image),
+                    "visual_review": "approved_manual",
+                }
+            ],
+        )
+        candidates = [
+            {
+                "candidate_id": candidate_id,
+                "source_id": "SRC",
+                "source_file": str(source),
+                "source_in": 0,
+                "source_out": 4,
+            }
+            for candidate_id in ("A-ID", "B-ID", "C-ID")
+        ]
+        pool_path = self.root / "visuals/review/pool.jsonl"
+        pool_path.write_text(
+            json.dumps(
+                {
+                    "visual_unit_id": "U001",
+                    "cue_ids": [1, 2],
+                    "risk_flags": ["opening", "ending"],
+                    "candidates": candidates,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        matrix = []
+        for view, candidate_id in zip(("A", "B", "C"), ("A-ID", "B-ID", "C-ID")):
+            for sample, timestamp in (("head", 0), ("mid", 2), ("tail", 4)):
+                matrix.append(
+                    {
+                        "visual_unit_id": "U001",
+                        "candidate": view,
+                        "candidate_id": candidate_id,
+                        "sample": sample,
+                        "source_id": "SRC",
+                        "source_file": str(source),
+                        "source_in": 0,
+                        "source_out": 4,
+                        "timestamp": timestamp,
+                        "evidence_path": str(evidence_image),
+                        "sha256": file_sha256(evidence_image),
+                        "status": "PASS",
+                    }
+                )
+        review_path = self.root / "visuals/review/semantic_review.json"
+        review = {
+            "status": "PASS",
+            "row_count": 2,
+            "visual_unit_count": 1,
+            "match_sheet_sha256": file_sha256(match),
+            "evidence_manifest_sha256": file_sha256(evidence_manifest),
+            "candidate_pool_sha256": file_sha256(pool_path),
+            "selected_reviewed_visual_unit_ids": ["U001"],
+            "risk_visual_unit_ids": ["U001"],
+            "risk_matrix": matrix,
+            "unit_range_reviews": [{"visual_unit_id": "U001", "status": "PASS"}],
+            "cue_frame_mapping": [
+                {"cue_id": 1, "visual_unit_id": "U001", "output_start_frame": 0, "output_end_frame": 20},
+                {"cue_id": 2, "visual_unit_id": "U001", "output_start_frame": 20, "output_end_frame": 40},
+            ],
+            "opening_review": {"status": "PASS"},
+            "ending_review": {"status": "PASS"},
+            "unresolved_visual_unit_ids": [],
+            "files": [
+                {
+                    "path": str(evidence_image),
+                    "sha256": file_sha256(evidence_image),
+                    "kind": "evidence_frame",
+                }
+            ],
+        }
+        review_path.write_text(json.dumps(review), encoding="utf-8")
+        failures, _ = semantic_review_failures(
+            self.root,
+            review_path,
+            review,
+            match,
+            evidence_manifest,
+            pool_path,
+            {
+                "require_layered_review": True,
+                "require_risk_frame_matrix": True,
+                "require_range_reviews": True,
+                "require_opening_review": True,
+                "require_ending_review": True,
+            },
+        )
+        self.assertEqual(failures, [])
+        review["risk_matrix"][0]["source_id"] = "WRONG"
+        failures, _ = semantic_review_failures(
+            self.root,
+            review_path,
+            review,
+            match,
+            evidence_manifest,
+            pool_path,
+            {"require_layered_review": True, "require_risk_frame_matrix": True},
+        )
+        self.assertTrue(any("risk evidence source_id mismatch" in item for item in failures))
+
+    def test_stress_gate_uses_concrete_frame_evidence_and_conditional_card(self) -> None:
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg or not shutil.which("ffprobe"):
+            self.skipTest("ffmpeg and ffprobe are required")
+        sample = self.root / "hyperframes/stress/sample.mp4"
+        sample.parent.mkdir(parents=True, exist_ok=True)
+        completed = subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=64x64:r=10:d=2",
+                "-an",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-y",
+                str(sample),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        evidence = self.evidence("hyperframes/stress/frame.png")
+        match = self.write_tsv(
+            "visuals/stress_match.tsv",
+            ["line_id", "visual_unit_id", "caption_start", "caption_end"],
+            [{"line_id": 1, "visual_unit_id": "U001", "caption_start": 0, "caption_end": 2}],
+        )
+        proxy_manifest = self.write_json(
+            "sources/stress_proxy_manifest.json",
+            {"production_asset_classes": ["video"]},
+        )
+        composition = self.write_json("hyperframes/composition.json", {"version": 1})
+        render_plan = self.write_json("hyperframes/render_plan.json", {"version": 1})
+
+        def frame_record(frame: int) -> dict[str, object]:
+            return {
+                "path": str(evidence),
+                "sha256": file_sha256(evidence),
+                "output_frame": frame,
+                "decoded_frame_sha256": decoded_frame_sha256(sample, frame),
+            }
+
+        assets = [
+            {
+                "asset_id": "A1",
+                "asset_class": "video",
+                "visual_unit_id": "U001",
+                "output_start_frame": 0,
+                "output_end_frame": 5,
+                "risk_classes": ["shortest_unit"],
+                "frame_evidence": {"head": frame_record(0), "tail": frame_record(4)},
+            },
+            {
+                "asset_id": "A2",
+                "asset_class": "video",
+                "visual_unit_id": "U001",
+                "output_start_frame": 5,
+                "output_end_frame": 10,
+                "transition_in": "hard_cut",
+                "risk_classes": ["hard_cut"],
+                "frame_evidence": {"head": frame_record(5), "tail": frame_record(9)},
+            },
+            {
+                "asset_id": "A3",
+                "asset_class": "video",
+                "visual_unit_id": "U001",
+                "output_start_frame": 10,
+                "output_end_frame": 15,
+                "activation_frame": 10,
+                "risk_classes": ["media_element_activation"],
+                "frame_evidence": {
+                    "head": frame_record(10),
+                    "tail": frame_record(14),
+                    "activation": frame_record(10),
+                },
+            },
+            {
+                "asset_id": "A4",
+                "asset_class": "video",
+                "visual_unit_id": "U001",
+                "output_start_frame": 15,
+                "output_end_frame": 20,
+                "risk_classes": [],
+                "frame_evidence": {"head": frame_record(15), "tail": frame_record(19)},
+            },
+        ]
+        stress_manifest = self.write_json(
+            "hyperframes/stress/stress_manifest.json",
+            {
+                "status": "PASS",
+                "engine": "hyperframes",
+                "sample_sha256": file_sha256(sample),
+                "source_proxy_manifest_sha256": file_sha256(proxy_manifest),
+                "match_sheet_sha256": file_sha256(match),
+                "composition_sha256": file_sha256(composition),
+                "render_plan_sha256": file_sha256(render_plan),
+                "coverage": {
+                    "asset_classes": ["video"],
+                    "risk_classes": [
+                        "shortest_unit",
+                        "hard_cut",
+                        "media_element_activation",
+                    ],
+                },
+                "sample_assets": assets,
+                "seam_frames": [5, 10, 15],
+            },
+        )
+        check = {
+            "type": "hyperframes_stress_test_integrity",
+            "path": str(stress_manifest),
+            "sample_path": str(sample),
+            "source_proxy_manifest_path": str(proxy_manifest),
+            "match_sheet_path": str(match),
+            "composition_path": str(composition),
+            "render_plan_path": str(render_plan),
+            "required_engine": "hyperframes",
+            "minimum_duration_seconds": 1,
+            "maximum_duration_seconds": 3,
+            "required_risk_classes": [
+                "shortest_unit",
+                "hard_cut",
+                "media_element_activation",
+            ],
+            "require_all_declared_asset_classes": True,
+            "check_full_decode": True,
+            "check_black_frames": True,
+            "check_transition_seams": True,
+        }
+        passed, _, metrics = run_check(self.root, check)
+        self.assertTrue(passed, metrics)
+        proxy_manifest.write_text(
+            json.dumps({"production_asset_classes": ["video", "card"]}),
+            encoding="utf-8",
+        )
+        manifest_data = json.loads(stress_manifest.read_text(encoding="utf-8"))
+        manifest_data["source_proxy_manifest_sha256"] = file_sha256(proxy_manifest)
+        stress_manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
+        passed, _, metrics = run_check(self.root, check)
+        self.assertFalse(passed)
+        self.assertTrue(any("card" in item for item in metrics["failures"]))
+        composition.write_text(json.dumps({"version": 2}), encoding="utf-8")
+        passed, _, metrics = run_check(self.root, check)
+        self.assertFalse(passed)
+        self.assertTrue(any("composition SHA" in item for item in metrics["failures"]))
 
 
 if __name__ == "__main__":

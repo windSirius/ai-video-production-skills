@@ -18,6 +18,11 @@ from pathlib import Path
 from typing import Any
 
 
+DEFAULT_MUSIC_SOURCE_ROOT = str(
+    Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
+)
+
+
 SUPPORTED_TYPES = {
     "file_exists",
     "file_nonempty",
@@ -39,16 +44,27 @@ SUPPORTED_TYPES = {
     "visual_match_plan_integrity",
     "visual_selection_review_integrity",
     "visual_match_repair_integrity",
+    "source_proxy_manifest_integrity",
+    "hyperframes_stress_test_integrity",
+    "aesthetic_proxy_approval_integrity",
     "picture_master_integrity",
     "picture_patch_integrity",
 }
 CAPTION_FORBIDDEN_TERMINAL_PUNCTUATION = ("，", "。", "：", "；", ",", ".", ":", ";")
 CAPTION_TRAILING_CLOSING_MARKS = ("」", "』", "”", "’", "》", "〉", "）", "】")
-DEFAULT_MUSIC_SOURCE_ROOT = str(
-    Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
-)
 TRUE_VALUES = {"1", "true", "yes", "y", "是", "required"}
 STILL_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp"}
+SEMANTIC_VISUAL_UNIT_GRANULARITY = "semantic_visual_units_v2"
+ALLOWED_SEMANTIC_RISK_FLAGS = {
+    "identity",
+    "quotation_evidence",
+    "opening",
+    "ending",
+    "low_confidence",
+    "ocr_ui_black",
+    "reuse_overlap",
+    "user_reported",
+}
 
 
 def resolve_path(root: Path, value: str) -> Path:
@@ -134,8 +150,18 @@ def assert_json_values(data: dict[str, Any], assertions: list[dict[str, Any]]) -
             failures.append(f"{field}: missing")
             continue
         expected = assertion.get("value")
+        if op == "eq_field":
+            try:
+                expected = dotted_value(data, expected)
+            except KeyError:
+                failures.append(f"{field}: comparison field {assertion.get('value')} missing")
+                continue
         if op == "eq" and actual != expected:
             failures.append(f"{field}={actual!r}, expected {expected!r}")
+        elif op == "eq_field" and actual != expected:
+            failures.append(
+                f"{field}={actual!r}, expected value of {assertion.get('value')}={expected!r}"
+            )
         elif op == "ne" and actual == expected:
             failures.append(f"{field} must not equal {expected!r}")
         elif op == "gte" and not actual >= expected:
@@ -144,7 +170,7 @@ def assert_json_values(data: dict[str, Any], assertions: list[dict[str, Any]]) -
             failures.append(f"{field}={actual!r}, expected <= {expected!r}")
         elif op == "nonempty" and actual in (None, "", [], {}):
             failures.append(f"{field} is empty")
-        elif op not in {"eq", "ne", "gte", "lte", "nonempty"}:
+        elif op not in {"eq", "eq_field", "ne", "gte", "lte", "nonempty"}:
             failures.append(f"{field}: unsupported assertion op {op}")
     return failures
 
@@ -427,6 +453,290 @@ def selected_candidate_pool_binding_failures(
     }
 
 
+def semantic_candidate_pool_failures(
+    root: Path,
+    rows: list[dict[str, str]],
+    pool_rows: list[dict[str, Any]],
+    *,
+    normal_min_candidates: int,
+    normal_max_candidates: int,
+    risk_max_candidates: int,
+    require_evidence: bool,
+) -> tuple[list[str], dict[str, Any]]:
+    """Bind one candidate-pool row to each semantic visual unit."""
+
+    failures: list[str] = []
+    units: dict[str, list[tuple[int, dict[str, str]]]] = {}
+    unit_order: list[str] = []
+    previous = ""
+    closed: set[str] = set()
+    for index, row in enumerate(rows, start=1):
+        unit_id = row.get("visual_unit_id", "").strip()
+        if not unit_id:
+            failures.append(f"cue {index}: visual_unit_id is required")
+            continue
+        if unit_id != previous:
+            if unit_id in closed:
+                failures.append(f"visual unit {unit_id!r} is non-contiguous")
+            if previous:
+                closed.add(previous)
+            unit_order.append(unit_id)
+            previous = unit_id
+        units.setdefault(unit_id, []).append((index, row))
+    pool_by_unit: dict[str, dict[str, Any]] = {}
+    for index, entry in enumerate(pool_rows, start=1):
+        unit_id = str(entry.get("visual_unit_id", "")).strip()
+        if not unit_id:
+            failures.append(f"candidate pool row {index}: visual_unit_id is required")
+            continue
+        if unit_id in pool_by_unit:
+            failures.append(f"duplicate candidate-pool visual_unit_id={unit_id!r}")
+        pool_by_unit[unit_id] = entry
+    if set(pool_by_unit) != set(units):
+        failures.append(
+            "semantic candidate pool coverage missing="
+            f"{sorted(set(units) - set(pool_by_unit))}, "
+            f"extra={sorted(set(pool_by_unit) - set(units))}"
+        )
+    cue_coverage: list[int] = []
+    risk_units: list[str] = []
+    normal_units: list[str] = []
+    for position, unit_id in enumerate(unit_order):
+        unit_rows = units.get(unit_id, [])
+        entry = pool_by_unit.get(unit_id)
+        if entry is None or not unit_rows:
+            continue
+        expected_cues = [identity for identity, _ in unit_rows]
+        declared_cues: list[int] = []
+        for raw in entry.get("cue_ids", []):
+            try:
+                declared_cues.append(int(raw))
+            except (TypeError, ValueError):
+                failures.append(f"visual unit {unit_id}: invalid cue ID={raw!r}")
+        if declared_cues != expected_cues:
+            failures.append(
+                f"visual unit {unit_id}: cue_ids={declared_cues}, "
+                f"expected={expected_cues}"
+            )
+        cue_coverage.extend(declared_cues)
+        pool_id = str(entry.get("pool_id") or unit_id).strip()
+        representative = unit_rows[0][1]
+        shared_unit_fields = (
+            "candidate_pool_id",
+            "candidate_a",
+            "candidate_a_id",
+            "candidate_a_score",
+            "candidate_a_source_id",
+            "candidate_a_evidence",
+            "candidate_b",
+            "candidate_b_id",
+            "candidate_b_score",
+            "candidate_b_source_id",
+            "candidate_b_evidence",
+            "candidate_c",
+            "candidate_c_id",
+            "candidate_c_score",
+            "candidate_c_source_id",
+            "candidate_c_evidence",
+            "selected_candidate",
+            "selected_candidate_id",
+            "selected_source_id",
+            "source_id",
+            "source_file",
+            "source_in",
+            "source_out",
+        )
+        for cue_identity, row in unit_rows:
+            row_pool_id = str(row.get("candidate_pool_id") or unit_id).strip()
+            if row_pool_id != pool_id:
+                failures.append(
+                    f"cue {cue_identity}: candidate_pool_id does not bind unit pool"
+                )
+            for field in shared_unit_fields:
+                if row.get(field, "").strip() != representative.get(field, "").strip():
+                    failures.append(
+                        f"visual unit {unit_id}: cue {cue_identity} changes shared {field}"
+                    )
+        raw_flags = entry.get("risk_flags", [])
+        if isinstance(raw_flags, str):
+            raw_flags = split_identity_values(raw_flags)
+        flags = {
+            str(value).strip()
+            for value in raw_flags
+            if str(value).strip()
+        } if isinstance(raw_flags, list) else set()
+        unknown_flags = flags - ALLOWED_SEMANTIC_RISK_FLAGS
+        if unknown_flags:
+            failures.append(
+                f"visual unit {unit_id}: unsupported risk_flags={sorted(unknown_flags)}"
+            )
+        if "user_reported" in flags and not str(
+            entry.get("user_feedback_ref", "")
+        ).strip():
+            failures.append(
+                f"visual unit {unit_id}: user_reported requires user_feedback_ref"
+            )
+        required_flags: set[str] = set()
+        if position == 0:
+            required_flags.add("opening")
+        if position + 1 == len(unit_order):
+            required_flags.add("ending")
+        if any(
+            split_identity_values(row.get("named_entities_expected", ""))
+            or truthy(row.get("identity_required"))
+            for _, row in unit_rows
+        ):
+            required_flags.add("identity")
+        if any(
+            row.get("confidence", "").strip().casefold()
+            in {"low", "medium", "低", "中"}
+            for _, row in unit_rows
+        ):
+            required_flags.add("low_confidence")
+        if any(
+            row.get("narrative_job", "").strip().casefold()
+            in {"quote", "quote_or_evidence", "quotation", "evidence"}
+            for _, row in unit_rows
+        ):
+            required_flags.add("quotation_evidence")
+        missing_flags = required_flags - flags
+        if missing_flags:
+            failures.append(
+                f"visual unit {unit_id}: missing derived risk_flags={sorted(missing_flags)}"
+            )
+        candidates = entry.get("candidates", [])
+        if not isinstance(candidates, list):
+            failures.append(f"visual unit {unit_id}: candidates must be a list")
+            continue
+        is_risk = bool(flags)
+        if is_risk:
+            risk_units.append(unit_id)
+            if len(candidates) < 3 or len(candidates) > risk_max_candidates:
+                failures.append(
+                    f"visual unit {unit_id}: risk pool has {len(candidates)}, "
+                    f"expected 3..{risk_max_candidates}"
+                )
+        else:
+            normal_units.append(unit_id)
+            if not normal_min_candidates <= len(candidates) <= normal_max_candidates:
+                failures.append(
+                    f"visual unit {unit_id}: normal pool has {len(candidates)}, "
+                    f"expected {normal_min_candidates}..{normal_max_candidates}"
+                )
+        candidate_ids: set[str] = set()
+        candidates_by_id: dict[str, dict[str, Any]] = {}
+        for candidate_index, candidate in enumerate(candidates, start=1):
+            if not isinstance(candidate, dict):
+                failures.append(
+                    f"visual unit {unit_id}: candidate {candidate_index} is not an object"
+                )
+                continue
+            candidate_id = str(candidate.get("candidate_id", "")).strip()
+            if not candidate_id or candidate_id in candidate_ids:
+                failures.append(
+                    f"visual unit {unit_id}: candidate {candidate_index} has "
+                    "missing/duplicate candidate_id"
+                )
+            candidate_ids.add(candidate_id)
+            candidates_by_id[candidate_id] = candidate
+            if resolved_existing_file(root, candidate.get("source_file", "")) is None:
+                failures.append(
+                    f"visual unit {unit_id}: candidate {candidate_index} source missing"
+                )
+            if require_evidence:
+                evidence = candidate.get("evidence", {})
+                for sample in ("head", "mid", "tail"):
+                    raw = candidate.get(f"{sample}_evidence")
+                    if not raw and isinstance(evidence, dict):
+                        raw = evidence.get(sample)
+                    if isinstance(raw, dict):
+                        raw = raw.get("path")
+                    if resolved_existing_file(root, raw) is None:
+                        failures.append(
+                            f"visual unit {unit_id}: candidate {candidate_index} "
+                            f"missing {sample} evidence"
+                        )
+        top_ids = [
+            representative.get(f"candidate_{letter}_id", "").strip()
+            for letter in "abc"
+        ]
+        if len(set(top_ids)) != 3 or any(not value for value in top_ids):
+            failures.append(
+                f"visual unit {unit_id}: requires three distinct A/B/C candidate IDs"
+            )
+        elif any(value not in candidate_ids for value in top_ids):
+            failures.append(
+                f"visual unit {unit_id}: A/B/C candidate IDs are outside unit pool"
+            )
+        selected_id = representative.get("selected_candidate_id", "").strip()
+        selected = candidates_by_id.get(selected_id)
+        if selected is None:
+            failures.append(
+                f"visual unit {unit_id}: selected_candidate_id is outside unit pool"
+            )
+            continue
+        first_range = caption_range(unit_rows[0][1])
+        last_range = caption_range(unit_rows[-1][1])
+        unit_duration = (
+            last_range[1] - first_range[0]
+            if first_range is not None and last_range is not None
+            else 0.0
+        )
+        try:
+            source_in = float(representative.get("source_in", ""))
+            source_out = float(representative.get("source_out", ""))
+            if source_out - source_in + 0.05 < unit_duration:
+                failures.append(
+                    f"visual unit {unit_id}: selected source range is shorter "
+                    "than the full semantic unit"
+                )
+            if (
+                abs(float(selected["source_in"]) - source_in) > 0.002
+                or abs(float(selected["source_out"]) - source_out) > 0.022
+            ):
+                failures.append(
+                    f"visual unit {unit_id}: selected pool range differs from match sheet"
+                )
+        except (KeyError, TypeError, ValueError):
+            failures.append(
+                f"visual unit {unit_id}: selected source range binding is invalid"
+            )
+        selected_file = resolved_existing_file(root, selected.get("source_file", ""))
+        row_file = resolved_existing_file(root, representative.get("source_file", ""))
+        selected_source_id = str(selected.get("source_id", "")).strip()
+        row_source_id = str(
+            representative.get("selected_source_id")
+            or representative.get("source_id")
+            or ""
+        ).strip()
+        if selected_source_id and selected_source_id != row_source_id:
+            failures.append(
+                f"visual unit {unit_id}: selected pool source_id differs from match sheet"
+            )
+        if (
+            selected_file is None
+            or row_file is None
+            or selected_file.resolve() != row_file.resolve()
+        ):
+            failures.append(
+                f"visual unit {unit_id}: selected pool source differs from match sheet"
+            )
+    expected_cues = list(range(1, len(rows) + 1))
+    if cue_coverage != expected_cues:
+        failures.append(
+            "semantic candidate pool cue/frame mapping must cover every cue "
+            f"exactly once: got={cue_coverage}, expected={expected_cues}"
+        )
+    return failures, {
+        "semantic_visual_units": len(units),
+        "candidate_pool_rows": len(pool_rows),
+        "normal_unit_ids": normal_units,
+        "risk_unit_ids": risk_units,
+        "cue_coverage": cue_coverage,
+        "failures": failures,
+    }
+
+
 def candidate_pool_quality_failures(
     root: Path,
     rows: list[dict[str, str]],
@@ -436,6 +746,8 @@ def candidate_pool_quality_failures(
     preferred_candidates: int,
     require_evidence: bool,
     require_shortfall_evidence: bool,
+    normal_max_candidates: int | None = None,
+    risk_max_candidates: int | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     failures, metrics = selected_candidate_pool_binding_failures(
         root, rows, pool_rows
@@ -475,6 +787,21 @@ def candidate_pool_quality_failures(
                         f"cue {identity}: candidate pool below preferred size "
                         "without candidate_expansion_attempts"
                     )
+        risk_values = entry.get("risk_flags") or entry.get("risk_reasons") or []
+        is_risk = bool(risk_values) or str(entry.get("risk_tier", "")).strip().lower() in {
+            "risk",
+            "high",
+            "medium",
+            "风险",
+            "高",
+            "中",
+        }
+        maximum = risk_max_candidates if is_risk else normal_max_candidates
+        if maximum is not None and len(candidates) > maximum:
+            failures.append(
+                f"cue {identity}: {'risk' if is_risk else 'normal'} candidate "
+                f"pool has {len(candidates)}, expected<={maximum}"
+            )
         candidate_ids: set[str] = set()
         for candidate_index, candidate in enumerate(candidates, start=1):
             if not isinstance(candidate, dict):
@@ -540,6 +867,443 @@ def candidate_pool_quality_failures(
         "shortfall_cue_ids": shortfall_ids,
         "invalid_candidates": invalid_candidates,
         "missing_candidate_evidence": missing_evidence,
+    }
+
+
+def semantic_review_failures(
+    root: Path,
+    review_path: Path,
+    review: dict[str, Any],
+    match_sheet_path: Path,
+    evidence_manifest_path: Path,
+    candidate_pool_path: Path,
+    check: dict[str, Any],
+) -> tuple[list[str], dict[str, Any]]:
+    """Verify selected/risk evidence once per semantic visual unit."""
+
+    failures: list[str] = []
+    _, match_rows = read_tsv(match_sheet_path)
+    _, evidence_rows = read_tsv(evidence_manifest_path)
+    pool_rows = read_jsonl(candidate_pool_path)
+    units: dict[str, list[tuple[int, dict[str, str]]]] = {}
+    unit_order: list[str] = []
+    for cue_identity, row in enumerate(match_rows, start=1):
+        unit_id = row.get("visual_unit_id", "").strip()
+        if not unit_id:
+            failures.append(f"cue {cue_identity}: visual_unit_id is required")
+            continue
+        if unit_id not in units:
+            unit_order.append(unit_id)
+        units.setdefault(unit_id, []).append((cue_identity, row))
+    pool_by_unit: dict[str, dict[str, Any]] = {}
+    for index, entry in enumerate(pool_rows, start=1):
+        unit_id = str(entry.get("visual_unit_id", "")).strip()
+        if not unit_id or unit_id in pool_by_unit:
+            failures.append(
+                f"candidate pool row {index}: missing/duplicate visual_unit_id"
+            )
+            continue
+        pool_by_unit[unit_id] = entry
+    if set(pool_by_unit) != set(units):
+        failures.append("semantic review candidate-pool unit coverage is invalid")
+    layered_review = bool(check.get("require_layered_review", False))
+    trusted_paths: dict[Path, dict[str, Any]] = {}
+    selected_sheet_units: set[str] = set()
+    risk_sheet_units: set[str] = set()
+    cue_to_unit = {
+        cue_identity: unit_id
+        for unit_id, unit_rows in units.items()
+        for cue_identity, _ in unit_rows
+    }
+    raw_files = review.get("files", [])
+    if layered_review and (not isinstance(raw_files, list) or not raw_files):
+        failures.append("semantic review must list trusted evidence files")
+        raw_files = []
+    for file_index, record in enumerate(
+        raw_files if isinstance(raw_files, list) else []
+    ):
+        if (
+            not isinstance(record, dict)
+            or not str(record.get("path", "")).strip()
+            or not str(record.get("sha256", "")).strip()
+        ):
+            failures.append(
+                f"semantic trusted-file record {file_index} lacks path/sha256"
+            )
+            continue
+        raw_path = Path(str(record["path"])).expanduser()
+        file_path = (
+            raw_path.resolve()
+            if raw_path.is_absolute()
+            else (review_path.parent / raw_path).resolve()
+        )
+        if file_path in trusted_paths:
+            failures.append(
+                f"semantic review duplicates trusted evidence file={file_path}"
+            )
+        trusted_paths[file_path] = record
+        if not file_path.is_file():
+            failures.append(f"semantic review evidence file is missing={file_path}")
+        elif file_sha256(file_path) != str(record["sha256"]).strip().lower():
+            failures.append(
+                f"semantic review evidence file hash mismatch={file_path}"
+            )
+        referenced_units = {
+            str(value).strip()
+            for value in record.get("visual_unit_ids", [])
+            if str(value).strip()
+        } if isinstance(record.get("visual_unit_ids", []), list) else set()
+        if isinstance(record.get("cue_ids", []), list):
+            for raw_cue in record.get("cue_ids", []):
+                try:
+                    cue_identity = int(raw_cue)
+                except (TypeError, ValueError):
+                    failures.append(
+                        f"semantic trusted-file record {file_index} has invalid cue={raw_cue!r}"
+                    )
+                    continue
+                if cue_identity in cue_to_unit:
+                    referenced_units.add(cue_to_unit[cue_identity])
+        if record.get("kind") == "selected_sheet":
+            selected_sheet_units.update(referenced_units)
+        elif record.get("kind") == "risk_abc_sheet":
+            risk_sheet_units.update(referenced_units)
+    evidence_by_unit: dict[str, dict[str, str]] = {}
+    for index, row in enumerate(evidence_rows, start=1):
+        unit_id = row.get("visual_unit_id", "").strip()
+        if not unit_id or unit_id in evidence_by_unit:
+            failures.append(
+                f"semantic evidence row {index}: missing/duplicate visual_unit_id"
+            )
+            continue
+        evidence_by_unit[unit_id] = row
+    if set(evidence_by_unit) != set(units):
+        failures.append(
+            "semantic selected evidence coverage missing="
+            f"{sorted(set(units) - set(evidence_by_unit))}, "
+            f"extra={sorted(set(evidence_by_unit) - set(units))}"
+        )
+    for unit_id in unit_order:
+        unit_rows = units.get(unit_id, [])
+        evidence = evidence_by_unit.get(unit_id)
+        if not unit_rows or evidence is None:
+            continue
+        expected_cues = [identity for identity, _ in unit_rows]
+        declared_cues: list[int] = []
+        for raw in split_identity_values(evidence.get("cue_ids", "")):
+            try:
+                declared_cues.append(int(raw))
+            except ValueError:
+                failures.append(f"visual unit {unit_id}: invalid evidence cue={raw!r}")
+        if declared_cues != expected_cues:
+            failures.append(
+                f"visual unit {unit_id}: evidence cue_ids={declared_cues}, "
+                f"expected={expected_cues}"
+            )
+        selected = unit_rows[0][1]
+        selected_candidate_id = selected.get("selected_candidate_id", "").strip()
+        if evidence.get("selected_candidate_id", "").strip() != selected_candidate_id:
+            failures.append(
+                f"visual unit {unit_id}: evidence selected_candidate_id differs "
+                "from match sheet"
+            )
+        evidence_source_id = evidence.get("source_id", "").strip()
+        selected_source_id = (
+            selected.get("selected_source_id", "").strip()
+            or selected.get("source_id", "").strip()
+        )
+        if evidence_source_id != selected_source_id:
+            failures.append(
+                f"visual unit {unit_id}: evidence source_id differs from match sheet"
+            )
+        evidence_source = resolved_existing_file(root, evidence.get("source_file", ""))
+        selected_source = resolved_existing_file(root, selected.get("source_file", ""))
+        if (
+            evidence_source is None
+            or selected_source is None
+            or evidence_source.resolve() != selected_source.resolve()
+        ):
+            failures.append(
+                f"visual unit {unit_id}: evidence source_file differs from match sheet"
+            )
+        try:
+            evidence_in = float(evidence.get("source_in", ""))
+            evidence_out = float(evidence.get("source_out", ""))
+            selected_in = float(selected.get("source_in", ""))
+            selected_out = float(selected.get("source_out", ""))
+            timestamp = float(evidence.get("timestamp", ""))
+            if (
+                abs(evidence_in - selected_in) > 0.002
+                or abs(evidence_out - selected_out) > 0.022
+                or timestamp < evidence_in - 0.002
+                or timestamp > evidence_out + 0.002
+            ):
+                raise ValueError
+        except (TypeError, ValueError):
+            failures.append(
+                f"visual unit {unit_id}: selected evidence range/timestamp mismatch"
+            )
+        image = resolved_existing_file(
+            root,
+            evidence.get("evidence_image", "")
+            or evidence.get("evidence_path", ""),
+        )
+        if image is None:
+            failures.append(f"visual unit {unit_id}: evidence image is missing")
+        else:
+            image_sha = file_sha256(image)
+            declared_image_sha = (
+                evidence.get("evidence_sha256", "").strip()
+                or evidence.get("sha256", "").strip()
+            ).lower()
+            if declared_image_sha != image_sha:
+                failures.append(
+                    f"visual unit {unit_id}: selected evidence image SHA mismatch"
+                )
+            if layered_review and image.resolve() not in trusted_paths:
+                failures.append(
+                    f"visual unit {unit_id}: selected evidence is not in trusted files"
+                )
+        if evidence.get("visual_review", "").strip().lower() not in {
+            "approved_manual",
+            "approved",
+            "verified",
+            "pass",
+        }:
+            failures.append(f"visual unit {unit_id}: evidence is not approved")
+    selected_reviewed = [
+        str(value).strip()
+        for value in review.get("selected_reviewed_visual_unit_ids", [])
+        if str(value).strip()
+    ]
+    if selected_reviewed != unit_order:
+        failures.append(
+            "selected review must cover every visual unit exactly once in order"
+        )
+    risk_units = {
+        unit_id
+        for unit_id, entry in pool_by_unit.items()
+        if entry.get("risk_flags")
+    }
+    declared_risk = {
+        str(value).strip()
+        for value in review.get("risk_visual_unit_ids", [])
+        if str(value).strip()
+    }
+    if declared_risk != risk_units:
+        failures.append("risk visual-unit declaration differs from candidate pool")
+    if check.get("require_contact_sheets", False):
+        if selected_sheet_units != set(units):
+            failures.append(
+                "selected contact-sheet unit coverage missing="
+                f"{sorted(set(units) - selected_sheet_units)}, "
+                f"extra={sorted(selected_sheet_units - set(units))}"
+            )
+        if risk_sheet_units != risk_units:
+            failures.append(
+                "risk A/B/C contact-sheet unit coverage missing="
+                f"{sorted(risk_units - risk_sheet_units)}, "
+                f"extra={sorted(risk_sheet_units - risk_units)}"
+            )
+    if check.get("require_risk_frame_matrix", False):
+        actual: set[tuple[str, str, str]] = set()
+        raw_matrix = review.get("risk_matrix", [])
+        for index, item in enumerate(raw_matrix if isinstance(raw_matrix, list) else []):
+            if not isinstance(item, dict):
+                failures.append(f"risk matrix row {index} is not an object")
+                continue
+            key = (
+                str(item.get("visual_unit_id", "")).strip(),
+                str(item.get("candidate", "")).strip().upper(),
+                str(item.get("sample", "")).strip().lower(),
+            )
+            if key in actual:
+                failures.append(f"duplicate semantic risk evidence={key}")
+            actual.add(key)
+            unit_id, view, sample = key
+            match_unit_rows = units.get(unit_id, [])
+            representative = match_unit_rows[0][1] if match_unit_rows else {}
+            expected_candidate_id = representative.get(
+                f"candidate_{view.lower()}_id", ""
+            ).strip()
+            pool_candidates = {
+                str(candidate.get("candidate_id", "")).strip(): candidate
+                for candidate in pool_by_unit.get(unit_id, {}).get("candidates", [])
+                if isinstance(candidate, dict)
+                and str(candidate.get("candidate_id", "")).strip()
+            }
+            pool_candidate = pool_candidates.get(expected_candidate_id)
+            if not expected_candidate_id:
+                failures.append(
+                    f"visual unit {unit_id}: candidate {view} ID is missing"
+                )
+            elif pool_candidate is None:
+                failures.append(
+                    f"visual unit {unit_id}: candidate {view} is outside unit pool"
+                )
+            if str(item.get("candidate_id", "")).strip() != expected_candidate_id:
+                failures.append(f"risk evidence candidate_id mismatch={key}")
+            image = resolved_existing_file(
+                root, item.get("evidence_path") or item.get("path")
+            )
+            if image is None:
+                failures.append(f"risk evidence is missing={key}")
+            elif str(item.get("sha256", "")).lower() != file_sha256(image):
+                failures.append(f"risk evidence hash mismatch={key}")
+            elif layered_review and image.resolve() not in trusted_paths:
+                failures.append(f"risk evidence is not in trusted files={key}")
+            if str(item.get("status", "")).upper() != "PASS":
+                failures.append(f"risk evidence did not pass={key}")
+            if pool_candidate is not None:
+                record_source = resolved_existing_file(
+                    root, item.get("source_file", "")
+                )
+                pool_source = resolved_existing_file(
+                    root, pool_candidate.get("source_file", "")
+                )
+                if (
+                    record_source is None
+                    or pool_source is None
+                    or record_source.resolve() != pool_source.resolve()
+                ):
+                    failures.append(f"risk evidence source_file mismatch={key}")
+                if str(item.get("source_id", "")).strip() != str(
+                    pool_candidate.get("source_id", "")
+                ).strip():
+                    failures.append(f"risk evidence source_id mismatch={key}")
+                try:
+                    record_in = float(item["source_in"])
+                    record_out = float(item["source_out"])
+                    pool_in = float(pool_candidate["source_in"])
+                    pool_out = float(pool_candidate["source_out"])
+                    timestamp = float(item["timestamp"])
+                    if (
+                        abs(record_in - pool_in) > 0.002
+                        or abs(record_out - pool_out) > 0.022
+                        or timestamp < record_in - 0.002
+                        or timestamp > record_out + 0.002
+                    ):
+                        raise ValueError
+                except (KeyError, TypeError, ValueError):
+                    failures.append(
+                        f"risk evidence source range/timestamp mismatch={key}"
+                    )
+        expected = {
+            (unit_id, candidate, sample)
+            for unit_id in risk_units
+            for candidate in ("A", "B", "C")
+            for sample in ("head", "mid", "tail")
+        }
+        if actual != expected:
+            failures.append(
+                f"semantic risk matrix missing={sorted(expected - actual)}, "
+                f"extra={sorted(actual - expected)}"
+            )
+    raw_ranges = review.get("unit_range_reviews", [])
+    reviewed_units = [
+        str(item.get("visual_unit_id", "")).strip()
+        for item in raw_ranges
+        if isinstance(item, dict)
+        and str(item.get("status", "")).upper() == "PASS"
+    ] if isinstance(raw_ranges, list) else []
+    if check.get("require_range_reviews", True) and reviewed_units != unit_order:
+        failures.append(
+            "unit range reviews must cover every visual unit exactly once in order"
+        )
+    mapping = review.get("cue_frame_mapping", [])
+    mapped_cues: list[int] = []
+    previous_end = 0
+    for index, item in enumerate(mapping if isinstance(mapping, list) else [], start=1):
+        if not isinstance(item, dict):
+            failures.append(f"cue/frame mapping row {index} is not an object")
+            continue
+        try:
+            cue_identity = int(item["cue_id"])
+            start_frame = int(item["output_start_frame"])
+            end_frame = int(item["output_end_frame"])
+        except (KeyError, TypeError, ValueError):
+            failures.append(f"cue/frame mapping row {index} is invalid")
+            continue
+        mapped_cues.append(cue_identity)
+        if start_frame != previous_end or end_frame <= start_frame:
+            failures.append(f"cue {cue_identity}: frame mapping is not continuous")
+        previous_end = end_frame
+        expected_unit = (
+            match_rows[cue_identity - 1].get("visual_unit_id", "").strip()
+            if 0 < cue_identity <= len(match_rows)
+            else ""
+        )
+        if str(item.get("visual_unit_id", "")).strip() != expected_unit:
+            failures.append(f"cue {cue_identity}: frame mapping unit mismatch")
+    if mapped_cues != list(range(1, len(match_rows) + 1)):
+        failures.append("cue/frame mapping must cover every cue exactly once in order")
+    identity_checks = {
+        str(item.get("visual_unit_id", "")).strip(): item
+        for item in review.get("identity_checks", [])
+        if isinstance(item, dict)
+    }
+    if check.get("require_named_identity", True):
+        for unit_id, unit_rows in units.items():
+            if not any(
+                split_identity_values(row.get("named_entities_expected", ""))
+                for _, row in unit_rows
+            ):
+                continue
+            if str(identity_checks.get(unit_id, {}).get("status", "")).upper() != "PASS":
+                failures.append(
+                    f"visual unit {unit_id}: named identity check is unresolved"
+                )
+    for section_name, required in (
+        ("opening_review", check.get("require_opening_review", False)),
+        ("ending_review", check.get("require_ending_review", False)),
+    ):
+        if required and str(review.get(section_name, {}).get("status", "")).upper() != "PASS":
+            failures.append(f"semantic review lacks PASS {section_name}")
+    match_sha = file_sha256(match_sheet_path)
+    evidence_sha = file_sha256(evidence_manifest_path)
+    pool_sha = file_sha256(candidate_pool_path)
+    for label, actual, expected in (
+        ("match_sheet", match_sha, manifest_hash_value(review, "match_sheet_sha256")),
+        ("evidence_manifest", evidence_sha, manifest_hash_value(review, "evidence_manifest_sha256")),
+        ("candidate_pool", pool_sha, manifest_hash_value(review, "candidate_pool_sha256")),
+    ):
+        if actual != expected:
+            failures.append(f"review manifest has stale {label}_sha256")
+    if int(review.get("row_count", -1)) != len(match_rows):
+        failures.append("review manifest row_count mismatch")
+    if int(review.get("visual_unit_count", -1)) != len(units):
+        failures.append("review manifest visual_unit_count mismatch")
+    unresolved = sorted(
+        {
+            str(value).strip()
+            for value in review.get("unresolved_visual_unit_ids", [])
+            if str(value).strip()
+        }
+    )
+    allow_unresolved = bool(check.get("allow_unresolved", False))
+    status = str(review.get("status", "")).upper()
+    allowed = {"PASS", "NEEDS_REPAIR"} if allow_unresolved else {"PASS"}
+    if status not in allowed:
+        failures.append(f"semantic review status={status!r} is invalid")
+    if status == "NEEDS_REPAIR" and not unresolved:
+        failures.append("NEEDS_REPAIR review must name unresolved visual units")
+    if not allow_unresolved and unresolved:
+        failures.append(f"unresolved visual units remain={unresolved}")
+    workflow_ready = status == "PASS" and not unresolved and not failures
+    return failures, {
+        "status": status,
+        "rows": len(match_rows),
+        "visual_units": len(units),
+        "evidence_rows": len(evidence_rows),
+        "risk_visual_unit_ids": sorted(risk_units),
+        "unresolved_visual_unit_ids": unresolved,
+        "cue_frame_mapping_rows": len(mapped_cues),
+        "workflow_ready": workflow_ready,
+        "match_sheet_sha256": match_sha,
+        "evidence_manifest_sha256": evidence_sha,
+        "candidate_pool_sha256": pool_sha,
+        "review_manifest_sha256": file_sha256(review_path),
+        "failures": failures,
     }
 
 
@@ -624,6 +1388,9 @@ def _match_plan_failures(
     require_candidate_evidence: bool,
     required_qa_status: str | None = None,
     require_candidate_ids: bool = False,
+    require_semantic_visual_units: bool = False,
+    min_semantic_unit_duration_seconds: float = 4.0,
+    max_semantic_unit_duration_seconds: float = 8.0,
 ) -> tuple[list[str], dict[str, Any], list[dict[str, str]]]:
     fields, rows = read_tsv(match_sheet_path)
     failures: list[str] = []
@@ -661,6 +1428,9 @@ def _match_plan_failures(
         missing_fields.extend(
             sorted(candidate_id_fields - set(fields))
         )
+        missing_fields = sorted(set(missing_fields))
+    if require_semantic_visual_units and "visual_unit_id" not in fields:
+        missing_fields.append("visual_unit_id")
         missing_fields = sorted(set(missing_fields))
     if missing_fields:
         failures.append(f"missing columns={missing_fields}")
@@ -833,6 +1603,90 @@ def _match_plan_failures(
     )
     if reuse_over_limit:
         failures.append(f"reuse_over_limit={reuse_over_limit}")
+    semantic_unit_count = 0
+    semantic_unit_durations: dict[str, float] = {}
+    if require_semantic_visual_units and "visual_unit_id" in fields:
+        grouped: dict[str, list[tuple[int, dict[str, str]]]] = {}
+        unit_order: list[str] = []
+        closed_units: set[str] = set()
+        previous_unit = ""
+        for row_number, row in enumerate(rows, start=1):
+            unit_id = row.get("visual_unit_id", "").strip()
+            if not unit_id:
+                failures.append(f"cue {row_number}: visual_unit_id is empty")
+                continue
+            if unit_id != previous_unit:
+                if unit_id in closed_units:
+                    failures.append(
+                        f"visual unit {unit_id!r} is non-contiguous in the match sheet"
+                    )
+                if previous_unit:
+                    closed_units.add(previous_unit)
+                unit_order.append(unit_id)
+                previous_unit = unit_id
+            grouped.setdefault(unit_id, []).append((row_number, row))
+        semantic_unit_count = len(grouped)
+        for unit_id in unit_order:
+            unit_rows = grouped.get(unit_id, [])
+            ranges = [caption_range(row) for _, row in unit_rows]
+            if not ranges or any(value is None for value in ranges):
+                failures.append(f"visual unit {unit_id!r} has an invalid caption range")
+                continue
+            concrete_ranges = [value for value in ranges if value is not None]
+            duration = concrete_ranges[-1][1] - concrete_ranges[0][0]
+            semantic_unit_durations[unit_id] = duration
+            exception = next(
+                (
+                    row.get("visual_unit_exception", "").strip()
+                    for _, row in unit_rows
+                    if row.get("visual_unit_exception", "").strip()
+                ),
+                "",
+            )
+            if (
+                duration < min_semantic_unit_duration_seconds
+                or duration > max_semantic_unit_duration_seconds
+            ) and not exception:
+                failures.append(
+                    f"visual unit {unit_id!r} duration={duration:.3f}s is outside "
+                    f"{min_semantic_unit_duration_seconds:.3f}.."
+                    f"{max_semantic_unit_duration_seconds:.3f}s without "
+                    "visual_unit_exception"
+                )
+            shared_fields = (
+                "candidate_pool_id",
+                "candidate_a",
+                "candidate_a_id",
+                "candidate_a_score",
+                "candidate_a_source_id",
+                "candidate_a_evidence",
+                "candidate_b",
+                "candidate_b_id",
+                "candidate_b_score",
+                "candidate_b_source_id",
+                "candidate_b_evidence",
+                "candidate_c",
+                "candidate_c_id",
+                "candidate_c_score",
+                "candidate_c_source_id",
+                "candidate_c_evidence",
+                "selected_candidate",
+                "source_id",
+                "source_file",
+                "source_in",
+                "source_out",
+                "selected_candidate_id",
+                "selected_source_id",
+            )
+            for field in shared_fields:
+                values = {
+                    row.get(field, "").strip()
+                    for _, row in unit_rows
+                }
+                if len(values) > 1:
+                    failures.append(
+                        f"visual unit {unit_id!r} does not share one {field}"
+                    )
     metrics = {
         "rows": len(rows),
         "three_candidate_rows": three_candidate_rows,
@@ -840,6 +1694,8 @@ def _match_plan_failures(
         "selected_rows": selected_rows,
         "low_confidence_rows": low_confidence_rows,
         "reuse_over_limit": reuse_over_limit,
+        "semantic_visual_units": semantic_unit_count,
+        "semantic_visual_unit_durations": semantic_unit_durations,
         "match_sheet_sha256": file_sha256(match_sheet_path),
         "canonical_srt_sha256": file_sha256(canonical_srt_path)
         if canonical_srt_path
@@ -978,6 +1834,181 @@ def decoded_frame_hashes(path: Path) -> list[str]:
     return hashes
 
 
+def decoded_frame_sequence_sha256(path: Path) -> tuple[str, int]:
+    hashes = decoded_frame_hashes(path)
+    return frame_slice_sha256(hashes, 0, len(hashes)), len(hashes)
+
+
+def decoded_frame_sha256(path: Path, frame_number: int) -> str:
+    """Hash the RGB pixels of one exact decoded output frame."""
+
+    if frame_number < 0:
+        raise ValueError("decoded frame number must be non-negative")
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg not found for decoded frame evidence")
+    completed = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(path),
+            "-map",
+            "0:v:0",
+            "-vf",
+            f"select=eq(n\\,{frame_number})",
+            "-frames:v",
+            "1",
+            "-pix_fmt",
+            "rgb24",
+            "-f",
+            "rawvideo",
+            "-",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0 or not completed.stdout:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            detail or f"decoded frame evidence is missing for frame {frame_number}"
+        )
+    return hashlib.sha256(completed.stdout).hexdigest()
+
+
+def full_decode_once(path: Path) -> tuple[bool, str]:
+    """Decode the final video exactly once for corruption detection."""
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return False, "ffmpeg not found for full decode"
+    completed = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(path),
+            "-map",
+            "0:v:0",
+            "-an",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.returncode == 0, completed.stderr.strip()
+
+
+def seam_black_frames(
+    path: Path,
+    boundary_frames: list[int],
+    *,
+    total_frames: int,
+    amount: float = 99.0,
+    threshold: int = 16,
+) -> tuple[list[int], int]:
+    """Scan both sides of every seam in one FFmpeg decode pass."""
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg not found for seam scan")
+    selected_frames = sorted(
+        {
+            frame
+            for boundary in boundary_frames
+            for frame in (boundary - 1, boundary)
+            if 0 <= frame < total_frames
+        }
+    )
+    if not selected_frames:
+        raise ValueError("seam scan requires at least one in-range boundary")
+    expression = "+".join(f"eq(n\\,{frame})" for frame in selected_frames)
+    completed = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "info",
+            "-i",
+            str(path),
+            "-vf",
+            (
+                f"select='{expression}',"
+                f"blackframe=amount={amount}:threshold={threshold},showinfo"
+            ),
+            "-an",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "ffmpeg seam scan failed")
+    observed = len(re.findall(r"Parsed_showinfo[^\r\n]*\bn:\s*\d+", completed.stderr))
+    black_selected_indexes = [
+        int(value)
+        for value in re.findall(
+            r"Parsed_blackframe[^\r\n]*frame:(\d+)", completed.stderr
+        )
+    ]
+    black_source_frames = [
+        selected_frames[index]
+        for index in black_selected_indexes
+        if 0 <= index < len(selected_frames)
+    ]
+    return black_source_frames, observed
+
+
+def maximum_keyframe_gap_frames(path: Path, fps: float) -> int:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("ffprobe not found for GOP verification")
+    completed = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "packet=pts_time,flags",
+            "-of",
+            "csv=p=0",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "ffprobe packet scan failed")
+    key_times: list[float] = []
+    for line in completed.stdout.splitlines():
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) >= 2 and "K" in fields[-1]:
+            try:
+                key_times.append(float(fields[0]))
+            except ValueError:
+                continue
+    if not key_times:
+        raise RuntimeError("proxy contains no detectable keyframe")
+    if len(key_times) == 1:
+        probe = ffprobe_json(path)
+        duration = float(probe.get("format", {}).get("duration", 0.0) or 0.0)
+        return max(1, round(duration * fps))
+    return max(round((right - left) * fps) for left, right in zip(key_times, key_times[1:]))
+
+
 def frame_slice_sha256(
     hashes: list[str],
     start_frame: int,
@@ -1013,6 +2044,673 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         return path.is_file() and size > 0, f"size={size}", {"path": str(path), "size": size}
     if not path.exists():
         return False, f"missing path: {path}", {"path": str(path)}
+
+    if check_type == "source_proxy_manifest_integrity":
+        failures: list[str] = []
+        contract_path = (
+            resolve_path(root, check["contract_path"])
+            if check.get("contract_path")
+            else None
+        )
+        if contract_path is None or not contract_path.is_file():
+            return False, "source proxy check requires contract_path", {}
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        policy = contract.get("render_policy", {}).get("source_proxy", {})
+        if not isinstance(policy, dict) or not policy:
+            failures.append("contract lacks render_policy.source_proxy")
+            policy = {}
+        cache_root_value = str(policy.get("cache_root", "")).strip()
+        if cache_root_value and not Path(cache_root_value).expanduser().is_absolute():
+            failures.append("source proxy cache_root must be absolute")
+        cache_root = (
+            Path(cache_root_value).expanduser().resolve()
+            if cache_root_value
+            else None
+        )
+        if cache_root is None:
+            failures.append("source proxy policy lacks cache_root")
+        elif policy.get("require_outside_icloud", True) and "Library/Mobile Documents" in str(
+            cache_root
+        ):
+            failures.append("source proxy cache_root must resolve outside iCloud")
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        required_profile = str(check.get("required_profile", "")).strip()
+        policy_profile = str(policy.get("profile", "")).strip()
+        manifest_profile = str(manifest.get("profile", "")).strip()
+        if not required_profile or required_profile != policy_profile:
+            failures.append("source proxy check profile is not bound to the contract")
+        if manifest_profile != policy_profile:
+            failures.append("source proxy manifest profile is not bound to the contract")
+        contract_sha = file_sha256(contract_path)
+        if manifest_hash_value(manifest, "contract_sha256", "contract.sha256") != contract_sha:
+            failures.append("source proxy manifest has stale contract SHA")
+        if str(manifest.get("status", "")).upper() != "PASS":
+            failures.append("source proxy manifest status must be PASS")
+        entries = manifest.get("sources", [])
+        if not isinstance(entries, list) or not entries:
+            failures.append("source proxy manifest requires nonempty sources")
+            entries = []
+        production_asset_classes = {
+            str(value).strip()
+            for value in manifest.get("production_asset_classes", [])
+            if str(value).strip()
+        }
+        if not production_asset_classes:
+            failures.append(
+                "source proxy manifest requires production_asset_classes"
+            )
+        seen_ids: set[str] = set()
+        proxy_metrics: list[dict[str, Any]] = []
+        for index, entry in enumerate(entries, start=1):
+            if not isinstance(entry, dict):
+                failures.append(f"source proxy row {index} is not an object")
+                continue
+            source_id = str(entry.get("source_id", "")).strip()
+            if not source_id or source_id in seen_ids:
+                failures.append(f"source proxy row {index} has missing/duplicate source_id")
+            seen_ids.add(source_id)
+            source_file = resolved_existing_file(
+                root, entry.get("source_path") or entry.get("source_file")
+            )
+            proxy_file = resolved_existing_file(
+                root, entry.get("proxy_path") or entry.get("proxy_file")
+            )
+            raw_proxy_path = str(
+                entry.get("proxy_path") or entry.get("proxy_file") or ""
+            ).strip()
+            if raw_proxy_path and not Path(raw_proxy_path).expanduser().is_absolute():
+                failures.append(f"source {source_id}: proxy path must be absolute")
+            asset_class = str(entry.get("asset_class", "")).strip()
+            if not asset_class or asset_class not in production_asset_classes:
+                failures.append(
+                    f"source {source_id}: asset_class is absent from "
+                    "production_asset_classes"
+                )
+            if source_file is None:
+                failures.append(f"source {source_id}: source file is missing")
+            if proxy_file is None:
+                failures.append(f"source {source_id}: proxy file is missing")
+                continue
+            if cache_root is not None:
+                try:
+                    proxy_file.resolve().relative_to(cache_root)
+                except ValueError:
+                    failures.append(
+                        f"source {source_id}: proxy resolves outside cache_root"
+                    )
+            if policy.get("require_outside_icloud", True) and (
+                "Library/Mobile Documents" in str(proxy_file.resolve())
+            ):
+                failures.append(f"source {source_id}: proxy resolves inside iCloud")
+            source_sha = file_sha256(source_file) if source_file is not None else ""
+            if source_file is not None and check.get("verify_source_sha256", True):
+                if str(entry.get("source_sha256", "")).lower() != source_sha:
+                    failures.append(f"source {source_id}: stale source SHA")
+            proxy_sha = file_sha256(proxy_file)
+            if check.get("verify_proxy_sha256", True) and str(
+                entry.get("proxy_sha256", "")
+            ).lower() != proxy_sha:
+                failures.append(f"source {source_id}: stale proxy SHA")
+            try:
+                probe = ffprobe_json(proxy_file)
+            except RuntimeError as exc:
+                failures.append(f"source {source_id}: {exc}")
+                continue
+            streams = probe.get("streams", [])
+            videos = [item for item in streams if item.get("codec_type") == "video"]
+            video = videos[0] if videos else {}
+            if len(videos) != 1:
+                failures.append(f"source {source_id}: video_streams={len(videos)}, expected=1")
+            fps_text = video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/1"
+            fps = float(Fraction(fps_text)) if fps_text != "0/0" else 0.0
+            expected_values = {
+                "width": int(policy.get("width", 1920)),
+                "height": int(policy.get("height", 1080)),
+                "codec_name": str(policy.get("codec", "h264")),
+                "pix_fmt": str(policy.get("pixel_format", "yuv420p")),
+                "color_space": str(policy.get("color_space", "bt709")),
+                "color_primaries": str(policy.get("color_primaries", "bt709")),
+                "color_transfer": str(policy.get("color_transfer", "bt709")),
+            }
+            for field, expected in expected_values.items():
+                actual = video.get(field)
+                if actual != expected:
+                    failures.append(
+                        f"source {source_id}: {field}={actual!r}, expected={expected!r}"
+                    )
+            expected_fps = float(policy.get("fps", 30))
+            if abs(fps - expected_fps) > float(check.get("fps_tolerance", 0.02)):
+                failures.append(
+                    f"source {source_id}: fps={fps}, expected={expected_fps}"
+                )
+            max_gop = None
+            if check.get("verify_max_gop_frames", True):
+                try:
+                    max_gop = maximum_keyframe_gap_frames(proxy_file, fps)
+                except RuntimeError as exc:
+                    failures.append(f"source {source_id}: {exc}")
+                allowed_gop = int(policy.get("max_gop_frames", 30))
+                if max_gop is not None and max_gop > allowed_gop:
+                    failures.append(
+                        f"source {source_id}: max_gop_frames={max_gop}, "
+                        f"expected<={allowed_gop}"
+                    )
+            decode_pass = None
+            if check.get("check_full_decode", True):
+                decode_pass, decode_detail = full_decode_once(proxy_file)
+                if not decode_pass:
+                    failures.append(
+                        f"source {source_id}: proxy full decode failed: {decode_detail}"
+                    )
+            proxy_metrics.append(
+                {
+                    "source_id": source_id,
+                    "source_path": str(source_file) if source_file is not None else "",
+                    "source_sha256": source_sha,
+                    "proxy_path": str(proxy_file),
+                    "proxy_sha256": proxy_sha,
+                    "fps": fps,
+                    "max_gop_frames": max_gop,
+                    "full_decode_pass": decode_pass,
+                }
+            )
+        metrics = {
+            "profile": manifest_profile,
+            "source_count": len(entries),
+            "contract_sha256": contract_sha,
+            "cache_root": str(cache_root) if cache_root is not None else "",
+            "production_asset_classes": sorted(production_asset_classes),
+            "proxy_manifest_sha256": file_sha256(path),
+            "proxies": proxy_metrics,
+            "workflow_ready": bool(entries) and not failures,
+            "failures": failures,
+        }
+        return not failures, f"sources={len(entries)}, failures={failures}", metrics
+
+    if check_type == "hyperframes_stress_test_integrity":
+        required = [
+            field
+            for field in (
+                "sample_path",
+                "source_proxy_manifest_path",
+                "match_sheet_path",
+                "composition_path",
+                "render_plan_path",
+            )
+            if not check.get(field)
+        ]
+        if required:
+            return False, f"check config missing {required}", {"config_missing": required}
+        failures: list[str] = []
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        sample_path = resolve_path(root, check["sample_path"])
+        proxy_manifest_path = resolve_path(root, check["source_proxy_manifest_path"])
+        match_sheet_path = resolve_path(root, check["match_sheet_path"])
+        composition_path = resolve_path(root, check["composition_path"])
+        render_plan_path = resolve_path(root, check["render_plan_path"])
+        for label, candidate in (
+            ("sample_path", sample_path),
+            ("source_proxy_manifest_path", proxy_manifest_path),
+            ("match_sheet_path", match_sheet_path),
+            ("composition_path", composition_path),
+            ("render_plan_path", render_plan_path),
+        ):
+            if not candidate.is_file():
+                failures.append(f"{label} is missing: {candidate}")
+        if failures:
+            return False, f"failures={failures}", {"failures": failures}
+        sample_sha = file_sha256(sample_path)
+        proxy_sha = file_sha256(proxy_manifest_path)
+        match_sha = file_sha256(match_sheet_path)
+        composition_sha = file_sha256(composition_path)
+        render_plan_sha = file_sha256(render_plan_path)
+        if str(manifest.get("status", "")).upper() != "PASS":
+            failures.append("stress manifest status must be PASS")
+        if str(manifest.get("engine", "")).lower() != str(
+            check.get("required_engine", "hyperframes")
+        ).lower():
+            failures.append("stress sample was not rendered by required engine")
+        if manifest_hash_value(manifest, "sample_sha256", "sample.sha256") != sample_sha:
+            failures.append("stress manifest has stale sample SHA")
+        if manifest_hash_value(
+            manifest, "source_proxy_manifest_sha256", "source_proxy_manifest.sha256"
+        ) != proxy_sha:
+            failures.append("stress manifest has stale source-proxy manifest SHA")
+        if manifest_hash_value(manifest, "match_sheet_sha256", "match_sheet.sha256") != match_sha:
+            failures.append("stress manifest has stale match-sheet SHA")
+        if manifest_hash_value(
+            manifest, "composition_sha256", "composition.sha256"
+        ) != composition_sha:
+            failures.append("stress manifest has stale HyperFrames composition SHA")
+        if manifest_hash_value(
+            manifest, "render_plan_sha256", "render_plan.sha256"
+        ) != render_plan_sha:
+            failures.append("stress manifest has stale HyperFrames render-plan SHA")
+        probe = ffprobe_json(sample_path, count_frames=True)
+        streams = probe.get("streams", [])
+        video = next((item for item in streams if item.get("codec_type") == "video"), {})
+        duration = float(probe.get("format", {}).get("duration", 0.0) or 0.0)
+        fps_text = video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/1"
+        fps = float(Fraction(fps_text)) if fps_text != "0/0" else 0.0
+        frames = int(video.get("nb_read_frames") or video.get("nb_frames") or round(duration * fps))
+        minimum = float(check.get("minimum_duration_seconds", 30))
+        maximum = float(check.get("maximum_duration_seconds", 60))
+        if duration < minimum or duration > maximum:
+            failures.append(f"stress duration={duration}, expected {minimum}..{maximum}")
+        if any(item.get("codec_type") == "audio" for item in streams):
+            failures.append("stress sample must be video-only")
+        proxy_manifest = json.loads(proxy_manifest_path.read_text(encoding="utf-8"))
+        expected_asset_classes = {
+            str(value).strip()
+            for value in proxy_manifest.get("production_asset_classes", [])
+            if str(value).strip()
+        }
+        coverage = manifest.get("coverage", {})
+        declared_risk_classes = {
+            str(value).strip()
+            for value in coverage.get("risk_classes", [])
+            if str(value).strip()
+        }
+        declared_asset_classes = {
+            str(value).strip()
+            for value in coverage.get("asset_classes", [])
+            if str(value).strip()
+        }
+        required_risk_classes = {
+            str(value).strip()
+            for value in check.get("required_risk_classes", [])
+            if str(value).strip()
+        }
+        card_asset_classes = {"card", "overlay", "still"}
+        if {value.casefold() for value in expected_asset_classes} & card_asset_classes:
+            required_risk_classes.add("card")
+
+        _, match_rows = read_tsv(match_sheet_path)
+        unit_ranges: dict[str, tuple[float, float]] = {}
+        for row in match_rows:
+            unit_id = row.get("visual_unit_id", "").strip()
+            cue_range = caption_range(row)
+            if not unit_id or cue_range is None:
+                continue
+            if unit_id not in unit_ranges:
+                unit_ranges[unit_id] = cue_range
+            else:
+                unit_ranges[unit_id] = (
+                    min(unit_ranges[unit_id][0], cue_range[0]),
+                    max(unit_ranges[unit_id][1], cue_range[1]),
+                )
+        if not unit_ranges:
+            failures.append(
+                "stress match sheet has no semantic visual-unit ranges"
+            )
+        shortest_duration = min(
+            (end - start for start, end in unit_ranges.values()),
+            default=0.0,
+        )
+
+        sample_assets = manifest.get("sample_assets", [])
+        if not isinstance(sample_assets, list) or not sample_assets:
+            failures.append("stress manifest must list concrete sample_assets")
+            sample_assets = []
+        asset_ids: set[str] = set()
+        derived_asset_classes: set[str] = set()
+        derived_risk_classes: set[str] = set()
+        asset_boundaries: set[int] = set()
+        frame_evidence_checks = 0
+        frame_evidence_metrics: list[dict[str, Any]] = []
+        for asset_index, asset in enumerate(sample_assets, start=1):
+            if not isinstance(asset, dict):
+                failures.append(f"stress sample asset {asset_index} is not an object")
+                continue
+            asset_id = str(asset.get("asset_id", "")).strip()
+            if not asset_id or asset_id in asset_ids:
+                failures.append(
+                    f"stress sample asset {asset_index} has missing/duplicate asset_id"
+                )
+            asset_ids.add(asset_id)
+            asset_class = str(asset.get("asset_class", "")).strip()
+            if not asset_class:
+                failures.append(f"stress sample asset {asset_id!r} lacks asset_class")
+            else:
+                derived_asset_classes.add(asset_class)
+            try:
+                output_start = int(asset["output_start_frame"])
+                output_end = int(asset["output_end_frame"])
+                if output_start < 0 or output_end <= output_start or output_end > frames:
+                    raise ValueError
+            except (KeyError, TypeError, ValueError):
+                failures.append(
+                    f"stress sample asset {asset_id!r} has invalid output frame range"
+                )
+                continue
+            if output_start > 0:
+                asset_boundaries.add(output_start)
+            if output_end < frames:
+                asset_boundaries.add(output_end)
+            raw_risks = asset.get("risk_classes", [])
+            if isinstance(raw_risks, str):
+                raw_risks = split_identity_values(raw_risks)
+            risks = {
+                str(value).strip()
+                for value in raw_risks
+                if str(value).strip()
+            } if isinstance(raw_risks, list) else set()
+            derived_risk_classes.update(risks)
+            unit_id = str(asset.get("visual_unit_id", "")).strip()
+            if "shortest_unit" in risks:
+                unit_range = unit_ranges.get(unit_id)
+                if unit_range is None or abs(
+                    (unit_range[1] - unit_range[0]) - shortest_duration
+                ) > 0.002:
+                    failures.append(
+                        f"stress sample asset {asset_id!r} is not a shortest visual unit"
+                    )
+            if "hard_cut" in risks and (
+                output_start <= 0
+                or str(asset.get("transition_in", "")).strip().casefold()
+                not in {"hard_cut", "cut"}
+            ):
+                failures.append(
+                    f"stress sample asset {asset_id!r} lacks a concrete hard-cut boundary"
+                )
+            if "card" in risks and asset_class.casefold() not in card_asset_classes:
+                failures.append(
+                    f"stress sample asset {asset_id!r} marks card on class={asset_class!r}"
+                )
+
+            evidence = asset.get("frame_evidence", {})
+            if not isinstance(evidence, dict):
+                evidence = {}
+            expected_samples = {
+                "head": output_start,
+                "tail": output_end - 1,
+            }
+            if "media_element_activation" in risks:
+                try:
+                    activation_frame = int(asset["activation_frame"])
+                    if not output_start <= activation_frame < output_end:
+                        raise ValueError
+                except (KeyError, TypeError, ValueError):
+                    failures.append(
+                        f"stress sample asset {asset_id!r} has invalid activation_frame"
+                    )
+                    activation_frame = output_start
+                expected_samples["activation"] = activation_frame
+            for sample_name, expected_frame in expected_samples.items():
+                record = evidence.get(sample_name)
+                if not isinstance(record, dict):
+                    failures.append(
+                        f"stress sample asset {asset_id!r} lacks {sample_name} frame evidence"
+                    )
+                    continue
+                evidence_path = resolved_existing_file(
+                    root, record.get("path") or record.get("evidence_path")
+                )
+                if evidence_path is None:
+                    failures.append(
+                        f"stress sample asset {asset_id!r} {sample_name} evidence is missing"
+                    )
+                elif str(record.get("sha256", "")).strip().lower() != file_sha256(
+                    evidence_path
+                ):
+                    failures.append(
+                        f"stress sample asset {asset_id!r} {sample_name} evidence SHA mismatch"
+                    )
+                try:
+                    declared_frame = int(record["output_frame"])
+                    if declared_frame != expected_frame:
+                        raise ValueError
+                except (KeyError, TypeError, ValueError):
+                    failures.append(
+                        f"stress sample asset {asset_id!r} {sample_name} output_frame mismatch"
+                    )
+                    continue
+                try:
+                    actual_frame_sha = decoded_frame_sha256(
+                        sample_path, declared_frame
+                    )
+                except (RuntimeError, ValueError) as exc:
+                    failures.append(
+                        f"stress sample asset {asset_id!r} {sample_name}: {exc}"
+                    )
+                    continue
+                if str(record.get("decoded_frame_sha256", "")).strip().lower() != (
+                    actual_frame_sha
+                ):
+                    failures.append(
+                        f"stress sample asset {asset_id!r} {sample_name} decoded-frame SHA mismatch"
+                    )
+                frame_evidence_metrics.append(
+                    {
+                        "asset_id": asset_id,
+                        "sample": sample_name,
+                        "output_frame": declared_frame,
+                        "evidence_path": str(evidence_path)
+                        if evidence_path is not None
+                        else "",
+                        "evidence_sha256": file_sha256(evidence_path)
+                        if evidence_path is not None
+                        else "",
+                        "decoded_frame_sha256": actual_frame_sha,
+                    }
+                )
+                frame_evidence_checks += 1
+
+        if declared_asset_classes != derived_asset_classes:
+            failures.append(
+                "stress declared asset coverage is not derived from sample_assets: "
+                f"declared={sorted(declared_asset_classes)}, "
+                f"derived={sorted(derived_asset_classes)}"
+            )
+        if declared_risk_classes != derived_risk_classes:
+            failures.append(
+                "stress declared risk coverage is not derived from sample_assets: "
+                f"declared={sorted(declared_risk_classes)}, "
+                f"derived={sorted(derived_risk_classes)}"
+            )
+        missing_risk_classes = required_risk_classes - derived_risk_classes
+        if missing_risk_classes:
+            failures.append(
+                f"stress coverage missing concrete risk classes={sorted(missing_risk_classes)}"
+            )
+        if check.get("require_all_declared_asset_classes", False) and (
+            derived_asset_classes != expected_asset_classes
+        ):
+            failures.append(
+                "stress asset-class coverage differs from proxy manifest: "
+                f"missing={sorted(expected_asset_classes - derived_asset_classes)}, "
+                f"extra={sorted(derived_asset_classes - expected_asset_classes)}"
+            )
+        decode_pass = None
+        if check.get("check_full_decode", True):
+            decode_pass, decode_detail = full_decode_once(sample_path)
+            if not decode_pass:
+                failures.append(f"stress full decode failed: {decode_detail}")
+        black_events: list[str] = []
+        if check.get("check_black_frames", True):
+            try:
+                black_events = _black_events(
+                    sample_path,
+                    duration=float(check.get("black_duration", 0.03)),
+                    pixel_threshold=float(check.get("black_pixel_threshold", 0.02)),
+                )
+            except RuntimeError as exc:
+                failures.append(str(exc))
+            if black_events:
+                failures.append(f"stress black frame events={black_events[:20]}")
+        seam_black: list[int] = []
+        seam_observed = 0
+        raw_seam_frames = manifest.get("seam_frames", [])
+        try:
+            boundaries = [int(value) for value in raw_seam_frames]
+        except (TypeError, ValueError):
+            boundaries = []
+            failures.append("stress seam_frames must be a list of integers")
+        if len(boundaries) != len(set(boundaries)):
+            failures.append("stress seam_frames contain duplicates")
+        if any(value <= 0 or value >= frames for value in boundaries):
+            failures.append("stress seam_frames contain out-of-range boundaries")
+        if sample_assets and not boundaries:
+            failures.append("stress seam_frames must be non-empty")
+        missing_asset_boundaries = asset_boundaries - set(boundaries)
+        if missing_asset_boundaries:
+            failures.append(
+                "stress seam_frames omit sample-asset boundaries="
+                f"{sorted(missing_asset_boundaries)}"
+            )
+        if check.get("check_transition_seams", True):
+            try:
+                seam_black, seam_observed = seam_black_frames(
+                    sample_path,
+                    boundaries,
+                    total_frames=frames,
+                    amount=float(check.get("seam_black_amount", 99)),
+                    threshold=int(check.get("seam_black_threshold", 16)),
+                )
+            except (RuntimeError, ValueError) as exc:
+                failures.append(str(exc))
+            if seam_black:
+                failures.append(f"stress black seam frames={seam_black[:20]}")
+        metrics = {
+            "sample_sha256": sample_sha,
+            "duration": duration,
+            "frames": frames,
+            "fps": fps,
+            "full_decode_pass": decode_pass,
+            "black_events": black_events,
+            "seam_black_frames": seam_black,
+            "seam_frames_observed": seam_observed,
+            "covered_risk_classes": sorted(derived_risk_classes),
+            "covered_asset_classes": sorted(derived_asset_classes),
+            "sample_asset_count": len(sample_assets),
+            "frame_evidence_checks": frame_evidence_checks,
+            "frame_evidence": frame_evidence_metrics,
+            "composition_sha256": composition_sha,
+            "render_plan_sha256": render_plan_sha,
+            "workflow_ready": not failures,
+            "failures": failures,
+        }
+        return not failures, f"duration={duration}, failures={failures}", metrics
+
+    if check_type == "aesthetic_proxy_approval_integrity":
+        required = [
+            field
+            for field in (
+                "proxy_path",
+                "stress_manifest_path",
+                "match_sheet_path",
+                "composition_path",
+                "render_plan_path",
+            )
+            if not check.get(field)
+        ]
+        if required:
+            return False, f"check config missing {required}", {"config_missing": required}
+        failures: list[str] = []
+        approval = json.loads(path.read_text(encoding="utf-8"))
+        proxy_path = resolve_path(root, check["proxy_path"])
+        stress_path = resolve_path(root, check["stress_manifest_path"])
+        match_path = resolve_path(root, check["match_sheet_path"])
+        composition_path = resolve_path(root, check["composition_path"])
+        render_plan_path = resolve_path(root, check["render_plan_path"])
+        for label, candidate in (
+            ("proxy_path", proxy_path),
+            ("stress_manifest_path", stress_path),
+            ("match_sheet_path", match_path),
+            ("composition_path", composition_path),
+            ("render_plan_path", render_plan_path),
+        ):
+            if not candidate.is_file():
+                failures.append(f"{label} is missing: {candidate}")
+        if failures:
+            return False, f"failures={failures}", {"failures": failures}
+        proxy_sha = file_sha256(proxy_path)
+        stress_sha = file_sha256(stress_path)
+        match_sha = file_sha256(match_path)
+        composition_sha = file_sha256(composition_path)
+        render_plan_sha = file_sha256(render_plan_path)
+        stress_manifest = json.loads(stress_path.read_text(encoding="utf-8"))
+        if str(approval.get("status", "")).upper() != "PASS":
+            failures.append("aesthetic proxy approval status must be PASS")
+        if str(approval.get("engine", "")).lower() != str(
+            check.get("required_engine", "hyperframes")
+        ).lower():
+            failures.append("aesthetic proxy was not rendered by required engine")
+        if manifest_hash_value(approval, "proxy_sha256", "proxy.sha256") != proxy_sha:
+            failures.append("aesthetic approval has stale proxy SHA")
+        if manifest_hash_value(
+            approval, "stress_manifest_sha256", "stress_manifest.sha256"
+        ) != stress_sha:
+            failures.append("aesthetic approval has stale stress-manifest SHA")
+        if manifest_hash_value(approval, "match_sheet_sha256", "match_sheet.sha256") != match_sha:
+            failures.append("aesthetic approval has stale match-sheet SHA")
+        for label, actual_hash, approval_fields, stress_fields in (
+            (
+                "composition",
+                composition_sha,
+                ("composition_sha256", "composition.sha256"),
+                ("composition_sha256", "composition.sha256"),
+            ),
+            (
+                "render plan",
+                render_plan_sha,
+                ("render_plan_sha256", "render_plan.sha256"),
+                ("render_plan_sha256", "render_plan.sha256"),
+            ),
+        ):
+            if manifest_hash_value(approval, *approval_fields) != actual_hash:
+                failures.append(f"aesthetic approval has stale HyperFrames {label} SHA")
+            if manifest_hash_value(stress_manifest, *stress_fields) != actual_hash:
+                failures.append(
+                    f"aesthetic approval points to a stress test with stale {label} SHA"
+                )
+        probe = ffprobe_json(proxy_path)
+        streams = probe.get("streams", [])
+        videos = [item for item in streams if item.get("codec_type") == "video"]
+        video = videos[0] if videos else {}
+        width = int(video.get("width", 0) or 0)
+        height = int(video.get("height", 0) or 0)
+        if width != int(check.get("expected_width", 1280)):
+            failures.append(f"aesthetic proxy width={width}")
+        if height != int(check.get("expected_height", 720)):
+            failures.append(f"aesthetic proxy height={height}")
+        if len(videos) != 1 or any(item.get("codec_type") == "audio" for item in streams):
+            failures.append("aesthetic proxy must contain one video stream and no audio")
+        review = approval.get("review", {})
+        for config_field, section_name in (
+            ("require_opening_review", "opening"),
+            ("require_middle_review", "middle"),
+            ("require_ending_review", "ending"),
+        ):
+            section = review.get(section_name, {}) if isinstance(review, dict) else {}
+            if check.get(config_field, False) and str(section.get("status", "")).upper() != "PASS":
+                failures.append(f"aesthetic approval lacks PASS {section_name} review")
+        decisions = approval.get("decisions", {})
+        required_decisions = check.get("required_decisions", [])
+        if not isinstance(required_decisions, list):
+            failures.append("aesthetic required_decisions must be a list")
+            required_decisions = []
+        for decision in required_decisions:
+            if not str(
+                decisions.get(str(decision), "")
+                if isinstance(decisions, dict)
+                else ""
+            ).strip():
+                failures.append(
+                    f"aesthetic approval lacks {decision} decision"
+                )
+        metrics = {
+            "proxy_sha256": proxy_sha,
+            "stress_manifest_sha256": stress_sha,
+            "match_sheet_sha256": match_sha,
+            "composition_sha256": composition_sha,
+            "render_plan_sha256": render_plan_sha,
+            "width": width,
+            "height": height,
+            "workflow_ready": not failures,
+            "failures": failures,
+        }
+        return not failures, f"proxy={width}x{height}, failures={failures}", metrics
 
     if check_type == "visual_index_integrity":
         failures: list[str] = []
@@ -1103,6 +2801,49 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                     failures.append(f"source {identity}: SHA-256 mismatch")
         if not source_by_id:
             failures.append("source manifest contains no usable identities")
+
+        proxy_manifest_sha = ""
+        if check.get("proxy_manifest_path"):
+            proxy_manifest_path = resolve_path(root, check["proxy_manifest_path"])
+            if not proxy_manifest_path.is_file():
+                failures.append(
+                    f"proxy_manifest_path is missing: {proxy_manifest_path}"
+                )
+            else:
+                proxy_manifest_sha = file_sha256(proxy_manifest_path)
+                proxy_manifest = json.loads(
+                    proxy_manifest_path.read_text(encoding="utf-8")
+                )
+                if manifest_hash_value(
+                    source_manifest,
+                    "source_proxy_manifest_sha256",
+                    "proxy_manifest_sha256",
+                ) != proxy_manifest_sha:
+                    failures.append(
+                        "source identity manifest has stale source-proxy manifest SHA"
+                    )
+                for proxy_entry in proxy_manifest.get("sources", []):
+                    if not isinstance(proxy_entry, dict):
+                        continue
+                    proxy_source_id = str(
+                        proxy_entry.get("source_id", "")
+                    ).strip()
+                    proxy_file = resolved_existing_file(
+                        root,
+                        proxy_entry.get("proxy_path")
+                        or proxy_entry.get("proxy_file"),
+                    )
+                    if proxy_source_id not in source_paths_by_id:
+                        failures.append(
+                            f"indexed source manifest omits proxy source={proxy_source_id!r}"
+                        )
+                    elif (
+                        proxy_file is None
+                        or source_paths_by_id[proxy_source_id] != proxy_file.resolve()
+                    ):
+                        failures.append(
+                            f"indexed source {proxy_source_id!r} is not bound to its proxy"
+                        )
 
         require_frame_files = bool(check.get("require_frame_files", True))
         missing_frame_files: list[str] = []
@@ -1227,6 +2968,7 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             "shot_index_sha256": shot_sha,
             "ocr_index_sha256": ocr_sha,
             "source_manifest_sha256": source_manifest_sha,
+            "source_proxy_manifest_sha256": proxy_manifest_sha,
             "failures": failures,
         }
         return (
@@ -1268,7 +3010,131 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             require_candidate_ids=bool(
                 check.get("require_candidate_ids", False)
             ),
+            require_semantic_visual_units=bool(
+                check.get("require_semantic_visual_units", False)
+            ),
+            min_semantic_unit_duration_seconds=float(
+                check.get("min_semantic_unit_duration_seconds", 4)
+            ),
+            max_semantic_unit_duration_seconds=float(
+                check.get("max_semantic_unit_duration_seconds", 8)
+            ),
         )
+        semantic_pool_mode = (
+            check.get("candidate_pool_granularity")
+            == SEMANTIC_VISUAL_UNIT_GRANULARITY
+        )
+        if semantic_pool_mode:
+            candidate_pool_path = (
+                resolve_path(root, check["candidate_pool_path"])
+                if check.get("candidate_pool_path")
+                else None
+            )
+            manifest_path = (
+                resolve_path(root, check["manifest_path"])
+                if check.get("manifest_path")
+                else None
+            )
+            pool_metrics: dict[str, Any] = {}
+            pool_rows: list[dict[str, Any]] = []
+            candidate_pool_sha = ""
+            if candidate_pool_path is None or not candidate_pool_path.is_file():
+                failures.append("semantic match plan requires candidate_pool_path")
+            else:
+                candidate_pool_sha = file_sha256(candidate_pool_path)
+                try:
+                    pool_rows = read_jsonl(candidate_pool_path)
+                except (OSError, ValueError, json.JSONDecodeError) as exc:
+                    failures.append(f"candidate pool is invalid: {exc}")
+                pool_failures, pool_metrics = semantic_candidate_pool_failures(
+                    root,
+                    rows,
+                    pool_rows,
+                    normal_min_candidates=int(check.get("min_pool_candidates", 8)),
+                    normal_max_candidates=int(
+                        check.get("normal_pool_max_candidates", 12)
+                    ),
+                    risk_max_candidates=int(check.get("risk_pool_max_candidates", 32)),
+                    require_evidence=bool(
+                        check.get("require_candidate_pool_evidence", False)
+                    ),
+                )
+                failures.extend(pool_failures)
+                if check.get("require_source_manifest_binding", False):
+                    source_manifest_path = (
+                        resolve_path(root, check["source_manifest_path"])
+                        if check.get("source_manifest_path")
+                        else None
+                    )
+                    if source_manifest_path is None or not source_manifest_path.is_file():
+                        failures.append(
+                            "semantic candidate pool requires source_manifest_path"
+                        )
+                    else:
+                        source_failures, source_metrics = (
+                            candidate_source_manifest_failures(
+                                root, pool_rows, source_manifest_path
+                            )
+                        )
+                        failures.extend(source_failures)
+                        pool_metrics["source_binding"] = source_metrics
+            if manifest_path is None or not manifest_path.is_file():
+                failures.append("semantic match plan requires manifest_path")
+            else:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if str(manifest.get("status", "")).upper() != "PASS":
+                    failures.append("match plan manifest status must be PASS")
+                if manifest_hash_value(
+                    manifest, "match_sheet_sha256", "match_sheet.sha256"
+                ) != metrics["match_sheet_sha256"]:
+                    failures.append("match plan manifest has stale match_sheet_sha256")
+                if manifest_hash_value(
+                    manifest, "canonical_srt_sha256", "canonical_srt.sha256"
+                ) != metrics["canonical_srt_sha256"]:
+                    failures.append("match plan manifest has stale canonical_srt_sha256")
+                if manifest_hash_value(
+                    manifest, "candidate_pool_sha256", "candidate_pool.sha256"
+                ) != candidate_pool_sha:
+                    failures.append("match plan manifest has stale candidate_pool_sha256")
+                if int(manifest.get("row_count", -1)) != len(rows):
+                    failures.append("match plan manifest row_count mismatch")
+                if int(manifest.get("visual_unit_count", -1)) != int(
+                    metrics.get("semantic_visual_units", -2)
+                ):
+                    failures.append("match plan manifest visual_unit_count mismatch")
+                if check.get("require_index_binding", False):
+                    for field, manifest_fields in (
+                        ("shot_index_path", ("shot_index_sha256", "shot_index.sha256")),
+                        ("ocr_index_path", ("ocr_index_sha256", "shot_ocr_index_sha256")),
+                        (
+                            "source_manifest_path",
+                            ("source_manifest_sha256", "source_identity_manifest_sha256"),
+                        ),
+                    ):
+                        bound_path = (
+                            resolve_path(root, check[field])
+                            if check.get(field)
+                            else None
+                        )
+                        if bound_path is None or not bound_path.is_file():
+                            failures.append(
+                                f"match plan index binding is missing {field}"
+                            )
+                        elif manifest_hash_value(
+                            manifest, *manifest_fields
+                        ) != file_sha256(bound_path):
+                            failures.append(
+                                f"match plan manifest has stale {field} SHA"
+                            )
+                metrics["manifest_sha256"] = file_sha256(manifest_path)
+            metrics["failures"] = failures
+            metrics["candidate_pool_sha256"] = candidate_pool_sha
+            metrics["candidate_pool"] = pool_metrics
+            return (
+                not failures,
+                f"rows={len(rows)}, units={metrics.get('semantic_visual_units', 0)}, failures={failures}",
+                metrics,
+            )
         candidate_pool_path = (
             resolve_path(root, check["candidate_pool_path"])
             if check.get("candidate_pool_path")
@@ -1296,6 +3162,16 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                 )
                 require_shortfall_evidence = bool(
                     check.get("require_candidate_shortfall_evidence", False)
+                )
+                normal_pool_max_candidates = (
+                    int(check["normal_pool_max_candidates"])
+                    if check.get("normal_pool_max_candidates") is not None
+                    else None
+                )
+                risk_pool_max_candidates = (
+                    int(check["risk_pool_max_candidates"])
+                    if check.get("risk_pool_max_candidates") is not None
+                    else None
                 )
                 shortfall_ids: list[int] = []
                 require_pool_evidence = bool(
@@ -1404,6 +3280,27 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                                     f"cue {identity}: candidate pool below preferred "
                                     "size without candidate_expansion_attempts"
                                 )
+                    risk_values = entry.get("risk_flags") or entry.get("risk_reasons") or []
+                    is_risk = bool(risk_values) or str(
+                        entry.get("risk_tier", "")
+                    ).strip().lower() in {
+                        "risk",
+                        "high",
+                        "medium",
+                        "风险",
+                        "高",
+                        "中",
+                    }
+                    maximum = (
+                        risk_pool_max_candidates
+                        if is_risk
+                        else normal_pool_max_candidates
+                    )
+                    if maximum is not None and len(candidates) > maximum:
+                        failures.append(
+                            f"cue {identity}: {'risk' if is_risk else 'normal'} "
+                            f"candidate pool has {len(candidates)}, expected<={maximum}"
+                        )
                     candidate_ids: set[str] = set()
                     candidates_by_id: dict[str, dict[str, Any]] = {}
                     for candidate_index, candidate in enumerate(candidates, start=1):
@@ -1770,6 +3667,59 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             return False, f"failures={failures}", {"failures": failures}
         _, match_rows = read_tsv(match_sheet_path)
         _, evidence_rows = read_tsv(evidence_manifest_path)
+        if check.get("review_granularity") == SEMANTIC_VISUAL_UNIT_GRANULARITY:
+            if candidate_pool_path is None or not candidate_pool_path.is_file():
+                return False, "semantic review requires candidate_pool_path", {}
+            semantic_failures, semantic_metrics = semantic_review_failures(
+                root,
+                path,
+                review,
+                match_sheet_path,
+                evidence_manifest_path,
+                candidate_pool_path,
+                check,
+            )
+            failures.extend(semantic_failures)
+            source_metrics: dict[str, Any] = {}
+            if check.get("require_source_manifest_binding", False):
+                source_manifest_path = (
+                    resolve_path(root, check["source_manifest_path"])
+                    if check.get("source_manifest_path")
+                    else None
+                )
+                if source_manifest_path is None or not source_manifest_path.is_file():
+                    failures.append("semantic review requires source_manifest_path")
+                else:
+                    source_failures, source_metrics = candidate_source_manifest_failures(
+                        root, read_jsonl(candidate_pool_path), source_manifest_path
+                    )
+                    failures.extend(source_failures)
+                    source_sha = file_sha256(source_manifest_path)
+                    if manifest_hash_value(
+                        review,
+                        "source_manifest_sha256",
+                        "source_identity_manifest_sha256",
+                    ) != source_sha:
+                        failures.append(
+                            "review manifest has stale source_manifest_sha256"
+                        )
+                    semantic_metrics["source_manifest_sha256"] = source_sha
+            semantic_metrics["source_binding"] = source_metrics
+            semantic_metrics["failures"] = failures
+            semantic_metrics["workflow_ready"] = (
+                semantic_metrics.get("status") == "PASS"
+                and not semantic_metrics.get("unresolved_visual_unit_ids")
+                and not failures
+            )
+            return (
+                not failures,
+                (
+                    f"rows={len(match_rows)}, "
+                    f"units={semantic_metrics.get('visual_units', 0)}, "
+                    f"failures={failures}"
+                ),
+                semantic_metrics,
+            )
         match_by_id = {
             identity: row
             for index, row in enumerate(match_rows, start=1)
@@ -2539,7 +4489,11 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             failures.append("repair manifest has stale after_match_sheet_sha256")
         before_pool_sha = ""
         after_pool_sha = ""
-        actual_pool_changed: list[int] = []
+        semantic_repair_mode = (
+            check.get("candidate_pool_granularity")
+            == SEMANTIC_VISUAL_UNIT_GRANULARITY
+        )
+        actual_pool_changed: list[int | str] = []
         added_candidate_ids: list[str] = []
         pool_binding_metrics: dict[str, Any] = {}
         repair_source_binding_metrics: dict[str, Any] = {}
@@ -2567,13 +4521,19 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
 
             def pool_map(
                 values: list[dict[str, Any]],
-            ) -> dict[int, dict[str, Any]]:
-                result: dict[int, dict[str, Any]] = {}
+            ) -> dict[int | str, dict[str, Any]]:
+                result: dict[int | str, dict[str, Any]] = {}
                 for value in values:
-                    identity = int(value.get("cue_id") or value.get("line_id"))
+                    identity = (
+                        str(value.get("visual_unit_id", "")).strip()
+                        if semantic_repair_mode
+                        else int(value.get("cue_id") or value.get("line_id"))
+                    )
+                    if identity in (None, ""):
+                        raise ValueError("candidate pool row lacks identity")
                     if identity in result:
                         raise ValueError(
-                            f"candidate pool duplicates cue {identity}"
+                            f"candidate pool duplicates identity {identity}"
                         )
                     result[identity] = value
                 return result
@@ -2585,14 +4545,26 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                 failures.append(f"candidate pool diff is invalid: {exc}")
                 before_pool = {}
                 after_pool = {}
-            binding_failures, pool_binding_metrics = (
-                candidate_pool_quality_failures(
+            if semantic_repair_mode:
+                binding_failures, pool_binding_metrics = semantic_candidate_pool_failures(
                     root,
                     after_rows,
                     after_pool_rows,
-                    min_candidates=int(
-                        check.get("min_pool_candidates", 3)
+                    normal_min_candidates=int(check.get("min_pool_candidates", 8)),
+                    normal_max_candidates=int(
+                        check.get("normal_pool_max_candidates", 12)
                     ),
+                    risk_max_candidates=int(check.get("risk_pool_max_candidates", 32)),
+                    require_evidence=bool(
+                        check.get("require_candidate_pool_evidence", False)
+                    ),
+                )
+            else:
+                binding_failures, pool_binding_metrics = candidate_pool_quality_failures(
+                    root,
+                    after_rows,
+                    after_pool_rows,
+                    min_candidates=int(check.get("min_pool_candidates", 3)),
                     preferred_candidates=int(
                         check.get(
                             "preferred_pool_candidates",
@@ -2603,12 +4575,19 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                         check.get("require_candidate_pool_evidence", False)
                     ),
                     require_shortfall_evidence=bool(
-                        check.get(
-                            "require_candidate_shortfall_evidence", False
-                        )
+                        check.get("require_candidate_shortfall_evidence", False)
+                    ),
+                    normal_max_candidates=(
+                        int(check["normal_pool_max_candidates"])
+                        if check.get("normal_pool_max_candidates") is not None
+                        else None
+                    ),
+                    risk_max_candidates=(
+                        int(check["risk_pool_max_candidates"])
+                        if check.get("risk_pool_max_candidates") is not None
+                        else None
                     ),
                 )
-            )
             failures.extend(
                 f"repaired candidate pool: {failure}"
                 for failure in binding_failures
@@ -2659,7 +4638,37 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                 for identity in set(before_pool) & set(after_pool)
                 if before_pool[identity] != after_pool[identity]
             )
-            if not set(actual_pool_changed).issubset(set(declared_changed)):
+            if semantic_repair_mode:
+                declared_changed_units = sorted(
+                    {
+                        str(value).strip()
+                        for value in manifest.get("changed_visual_unit_ids", [])
+                        if str(value).strip()
+                    }
+                )
+                if actual_pool_changed != declared_changed_units:
+                    failures.append(
+                        "semantic candidate-pool changed units mismatch: "
+                        f"actual={actual_pool_changed}, "
+                        f"declared={declared_changed_units}"
+                    )
+                unit_cues = {
+                    str(entry.get("visual_unit_id", "")).strip(): {
+                        int(value) for value in entry.get("cue_ids", [])
+                    }
+                    for entry in after_pool_rows
+                    if isinstance(entry, dict)
+                }
+                changed_pool_cues = set().union(
+                    *(unit_cues.get(str(unit_id), set()) for unit_id in actual_pool_changed)
+                ) if actual_pool_changed else set()
+                if changed_pool_cues and not (
+                    changed_pool_cues & set(declared_changed)
+                ):
+                    failures.append(
+                        "semantic pool changed without any declared cue in that unit"
+                    )
+            elif not set(actual_pool_changed).issubset(set(declared_changed)):
                 failures.append(
                     "candidate pool changed outside declared cues="
                     f"{sorted(set(actual_pool_changed) - set(declared_changed))}"
@@ -2834,6 +4843,15 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                     require_candidate_ids=bool(
                         check.get("require_candidate_ids", False)
                     ),
+                    require_semantic_visual_units=bool(
+                        check.get("require_semantic_visual_units", False)
+                    ),
+                    min_semantic_unit_duration_seconds=float(
+                        check.get("min_semantic_unit_duration_seconds", 4)
+                    ),
+                    max_semantic_unit_duration_seconds=float(
+                        check.get("max_semantic_unit_duration_seconds", 8)
+                    ),
                 )
                 failures.extend(
                     f"repaired match plan: {failure}"
@@ -2875,6 +4893,16 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             )
             if field not in check
         ]
+        if check.get("render_unit_mode") == SEMANTIC_VISUAL_UNIT_GRANULARITY:
+            required_config.extend(
+                field
+                for field in (
+                    "aesthetic_proxy_approval_path",
+                    "composition_path",
+                    "render_plan_path",
+                )
+                if not check.get(field)
+            )
         if required_config:
             return False, f"check config missing {required_config}", {
                 "config_missing": required_config
@@ -2883,6 +4911,16 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         match_sheet_path = resolve_path(root, check["match_sheet_path"])
         approval_path = resolve_path(root, check["approval_path"])
         timing_contract_path = resolve_path(root, check["timing_contract_path"])
+        composition_path = (
+            resolve_path(root, check["composition_path"])
+            if check.get("composition_path")
+            else None
+        )
+        render_plan_path = (
+            resolve_path(root, check["render_plan_path"])
+            if check.get("render_plan_path")
+            else None
+        )
         failures: list[str] = []
         for label, candidate in (
             ("manifest_path", manifest_path),
@@ -2891,6 +4929,12 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             ("timing_contract_path", timing_contract_path),
         ):
             if not candidate.is_file():
+                failures.append(f"{label} is missing: {candidate}")
+        for label, candidate in (
+            ("composition_path", composition_path),
+            ("render_plan_path", render_plan_path),
+        ):
+            if candidate is not None and not candidate.is_file():
                 failures.append(f"{label} is missing: {candidate}")
         if failures:
             return False, f"failures={failures}", {"failures": failures}
@@ -2907,6 +4951,72 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         match_sha = file_sha256(match_sheet_path)
         approval_sha = file_sha256(approval_path)
         timing_sha = file_sha256(timing_contract_path)
+        composition_sha = (
+            file_sha256(composition_path)
+            if composition_path is not None and composition_path.is_file()
+            else ""
+        )
+        render_plan_sha = (
+            file_sha256(render_plan_path)
+            if render_plan_path is not None and render_plan_path.is_file()
+            else ""
+        )
+        aesthetic_approval_path = (
+            resolve_path(root, check["aesthetic_proxy_approval_path"])
+            if check.get("aesthetic_proxy_approval_path")
+            else None
+        )
+        aesthetic_approval_sha = ""
+        if aesthetic_approval_path is not None:
+            if not aesthetic_approval_path.is_file():
+                failures.append(
+                    f"aesthetic_proxy_approval_path is missing: {aesthetic_approval_path}"
+                )
+            else:
+                aesthetic_approval = json.loads(
+                    aesthetic_approval_path.read_text(encoding="utf-8")
+                )
+                aesthetic_approval_sha = file_sha256(aesthetic_approval_path)
+                if str(aesthetic_approval.get("status", "")).upper() != "PASS":
+                    failures.append("aesthetic proxy approval status must be PASS")
+                if manifest_hash_value(
+                    aesthetic_approval, "match_sheet_sha256", "match_sheet.sha256"
+                ) != match_sha:
+                    failures.append(
+                        "aesthetic proxy approval is not bound to the current match sheet"
+                    )
+                if manifest_hash_value(
+                    manifest,
+                    "aesthetic_proxy_approval_sha256",
+                    "aesthetic_proxy_approval.sha256",
+                ) != aesthetic_approval_sha:
+                    failures.append(
+                        "picture render manifest has stale aesthetic approval SHA"
+                    )
+                for label, actual_hash, fields in (
+                    (
+                        "composition",
+                        composition_sha,
+                        ("composition_sha256", "composition.sha256"),
+                    ),
+                    (
+                        "render plan",
+                        render_plan_sha,
+                        ("render_plan_sha256", "render_plan.sha256"),
+                    ),
+                ):
+                    if not actual_hash or manifest_hash_value(
+                        aesthetic_approval, *fields
+                    ) != actual_hash:
+                        failures.append(
+                            f"aesthetic approval has stale HyperFrames {label} SHA"
+                        )
+                    if not actual_hash or manifest_hash_value(
+                        manifest, *fields
+                    ) != actual_hash:
+                        failures.append(
+                            f"picture render manifest has stale HyperFrames {label} SHA"
+                        )
         if str(manifest.get("status", "")).upper() != "PASS":
             failures.append("picture render manifest status must be PASS")
         if manifest_hash_value(
@@ -2944,6 +5054,7 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         )
         segment_manifest_sha = ""
         segment_rows_count = 0
+        segment_boundary_frames: list[int] = []
         if segment_manifest_path is not None:
             if not segment_manifest_path.is_file():
                 failures.append(
@@ -2961,8 +5072,11 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                     )
                 segment_fields, segment_rows = read_tsv(segment_manifest_path)
                 segment_rows_count = len(segment_rows)
+                semantic_unit_mode = (
+                    check.get("render_unit_mode") == "semantic_visual_units_v2"
+                )
                 required_segment_fields = {
-                    "line_id",
+                    "visual_unit_id" if semantic_unit_mode else "line_id",
                     "output_start_frame",
                     "output_end_frame",
                     "source_file",
@@ -2976,20 +5090,29 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                     failures.append(
                         f"segment manifest missing columns={missing_segment_fields}"
                     )
-                match_by_id = {
-                    identity: row
-                    for index, row in enumerate(match_rows, start=1)
-                    if (identity := cue_id(row, index)) is not None
-                }
-                segment_by_id: dict[int, dict[str, str]] = {}
-                spans: list[tuple[int, int, int]] = []
+                if semantic_unit_mode:
+                    match_by_id: dict[str | int, dict[str, str]] = {}
+                    for row in match_rows:
+                        identity = row.get("visual_unit_id", "").strip()
+                        if not identity:
+                            failures.append("match sheet row has empty visual_unit_id")
+                            continue
+                        match_by_id.setdefault(identity, row)
+                else:
+                    match_by_id = {
+                        identity: row
+                        for index, row in enumerate(match_rows, start=1)
+                        if (identity := cue_id(row, index)) is not None
+                    }
+                segment_by_id: dict[str | int, dict[str, str]] = {}
+                spans: list[tuple[int, int, str | int]] = []
                 timing_contract = json.loads(
                     timing_contract_path.read_text(encoding="utf-8")
                 )
                 target_frames = int(timing_contract["target_frame_count"])
                 target_fps = float(timing_contract["fps"])
-                ordered_match_ids = sorted(match_by_id)
-                expected_output_spans: dict[int, tuple[int, int]] = {}
+                ordered_match_ids = list(match_by_id)
+                expected_output_spans: dict[str | int, tuple[int, int]] = {}
                 for position, identity in enumerate(ordered_match_ids):
                     row = match_by_id[identity]
                     explicit_start = (
@@ -3039,10 +5162,15 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                         end_frame,
                     )
                 for index, segment in enumerate(segment_rows, start=1):
-                    identity = cue_id(segment, index)
-                    if identity is None:
+                    identity = (
+                        segment.get("visual_unit_id", "").strip()
+                        if semantic_unit_mode
+                        else cue_id(segment, index)
+                    )
+                    if identity in (None, ""):
                         failures.append(
-                            f"segment row {index}: invalid line_id"
+                            f"segment row {index}: invalid "
+                            f"{'visual_unit_id' if semantic_unit_mode else 'line_id'}"
                         )
                         continue
                     if identity in segment_by_id:
@@ -3106,7 +5234,14 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                         f"{sorted(set(match_by_id) - set(segment_by_id))}, "
                         f"extra={sorted(set(segment_by_id) - set(match_by_id))}"
                     )
+                if semantic_unit_mode:
+                    manifest_unit_count = int(manifest.get("visual_unit_count", -1))
+                    if manifest_unit_count != len(match_by_id):
+                        failures.append(
+                            "picture render manifest visual_unit_count mismatch"
+                        )
                 spans.sort()
+                segment_boundary_frames = [start for start, _, _ in spans[1:]]
                 expected_frame = 0
                 for start_frame, end_frame, identity in spans:
                     if start_frame != expected_frame:
@@ -3165,6 +5300,26 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                 failures.append(str(exc))
             if black_events:
                 failures.append(f"black frame events={black_events[:20]}")
+        full_decode_pass = None
+        if check.get("check_full_decode", False):
+            full_decode_pass, decode_detail = full_decode_once(path)
+            if not full_decode_pass:
+                failures.append(f"picture full decode failed: {decode_detail}")
+        seam_black: list[int] = []
+        seam_observed = 0
+        if check.get("check_transition_seams", False):
+            try:
+                seam_black, seam_observed = seam_black_frames(
+                    path,
+                    segment_boundary_frames,
+                    total_frames=int(media_metrics["frames"]),
+                    amount=float(check.get("seam_black_amount", 99)),
+                    threshold=int(check.get("seam_black_threshold", 16)),
+                )
+            except (RuntimeError, ValueError) as exc:
+                failures.append(str(exc))
+            if seam_black:
+                failures.append(f"black seam frames={seam_black[:20]}")
         metrics = {
             **media_metrics,
             "cue_count": len(match_rows),
@@ -3174,6 +5329,12 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             "segment_manifest_sha256": segment_manifest_sha,
             "segment_rows": segment_rows_count,
             "black_events": black_events,
+            "full_decode_pass": full_decode_pass,
+            "seam_black_frames": seam_black,
+            "seam_frames_observed": seam_observed,
+            "aesthetic_proxy_approval_sha256": aesthetic_approval_sha,
+            "composition_sha256": composition_sha,
+            "render_plan_sha256": render_plan_sha,
             "failures": failures,
         }
         return (
@@ -3415,7 +5576,10 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                 "patch base approval is not bound to before match sheet"
             )
 
-        base_segments_path = (
+        chunk_scoped_mode = (
+            check.get("patch_verification_mode") == "chunk_scoped_v2"
+        )
+        base_segments_path = None if chunk_scoped_mode else (
             resolve_path(root, check["base_segment_manifest_path"])
             if check.get("base_segment_manifest_path")
             else resolved_existing_file(
@@ -3423,7 +5587,7 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                 manifest.get("base_segment_manifest", {}).get("path", ""),
             )
         )
-        output_segments_path = (
+        output_segments_path = None if chunk_scoped_mode else (
             resolve_path(root, check["output_segment_manifest_path"])
             if check.get("output_segment_manifest_path")
             else resolved_existing_file(
@@ -3609,6 +5773,174 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                 else [],
             }
 
+        chunk_metrics: dict[str, Any] = {}
+        chunk_boundary_frames: list[int] = []
+        if chunk_scoped_mode:
+            chunk_manifest_path = (
+                resolve_path(root, check["chunk_verification_manifest_path"])
+                if check.get("chunk_verification_manifest_path")
+                else None
+            )
+            if chunk_manifest_path is None or not chunk_manifest_path.is_file():
+                failures.append("chunk_scoped_v2 requires chunk_verification_manifest_path")
+            else:
+                chunk_manifest = json.loads(
+                    chunk_manifest_path.read_text(encoding="utf-8")
+                )
+                chunk_manifest_sha = file_sha256(chunk_manifest_path)
+                if manifest_hash_value(
+                    manifest,
+                    "chunk_verification_manifest_sha256",
+                    "chunk_verification_manifest.sha256",
+                ) != chunk_manifest_sha:
+                    failures.append(
+                        "patch manifest has stale chunk-verification manifest SHA"
+                    )
+                if manifest_hash_value(
+                    chunk_manifest, "base_picture_sha256", "base_picture.sha256"
+                ) != base_sha:
+                    failures.append("chunk verification has stale base picture SHA")
+                if manifest_hash_value(
+                    chunk_manifest, "output_picture_sha256", "output_picture.sha256"
+                ) != output_sha:
+                    failures.append("chunk verification has stale output picture SHA")
+                if str(chunk_manifest.get("status", "")).upper() != "PASS":
+                    failures.append("chunk verification manifest status must be PASS")
+                chunks = chunk_manifest.get("chunks", [])
+                if not isinstance(chunks, list) or not chunks:
+                    failures.append("chunk verification manifest requires nonempty chunks")
+                    chunks = []
+                declared_changed_chunk_ids = {
+                    str(value).strip()
+                    for value in chunk_manifest.get("changed_chunk_ids", [])
+                    if str(value).strip()
+                }
+                actual_changed_chunk_ids: set[str] = set()
+                changed_chunk_cue_ids: set[int] = set()
+                seen_chunk_ids: set[str] = set()
+                spans: list[tuple[int, int, str]] = []
+                unchanged_sha_count = 0
+                changed_decoded_count = 0
+                for index, entry in enumerate(chunks, start=1):
+                    if not isinstance(entry, dict):
+                        failures.append(f"chunk row {index} is not an object")
+                        continue
+                    chunk_id = str(entry.get("chunk_id", "")).strip()
+                    state = str(entry.get("state", "")).strip().lower()
+                    if not chunk_id or chunk_id in seen_chunk_ids:
+                        failures.append(
+                            f"chunk row {index} has missing/duplicate chunk_id"
+                        )
+                    seen_chunk_ids.add(chunk_id)
+                    if state not in {"changed", "unchanged"}:
+                        failures.append(f"chunk {chunk_id}: invalid state={state!r}")
+                    if state == "changed":
+                        actual_changed_chunk_ids.add(chunk_id)
+                    try:
+                        start_frame = int(entry["output_start_frame"])
+                        end_frame = int(entry["output_end_frame"])
+                        if start_frame < 0 or end_frame <= start_frame:
+                            raise ValueError
+                        spans.append((start_frame, end_frame, chunk_id))
+                    except (KeyError, TypeError, ValueError):
+                        failures.append(f"chunk {chunk_id}: invalid output frame span")
+                        continue
+                    base_chunk = resolved_existing_file(root, entry.get("base_chunk_path"))
+                    output_chunk = resolved_existing_file(root, entry.get("output_chunk_path"))
+                    if base_chunk is None or output_chunk is None:
+                        failures.append(f"chunk {chunk_id}: base/output chunk file is missing")
+                        continue
+                    base_chunk_sha = file_sha256(base_chunk)
+                    output_chunk_sha = file_sha256(output_chunk)
+                    if str(entry.get("base_sha256", "")).lower() != base_chunk_sha:
+                        failures.append(f"chunk {chunk_id}: stale base chunk SHA")
+                    if str(entry.get("output_sha256", "")).lower() != output_chunk_sha:
+                        failures.append(f"chunk {chunk_id}: stale output chunk SHA")
+                    if state == "unchanged":
+                        if check.get("verify_unchanged_chunk_sha256", True) and (
+                            base_chunk_sha != output_chunk_sha
+                        ):
+                            failures.append(
+                                f"chunk {chunk_id}: unchanged chunk SHA differs"
+                            )
+                        else:
+                            unchanged_sha_count += 1
+                    elif check.get("verify_changed_chunk_decoded_frames", True):
+                        try:
+                            base_decoded_sha, base_frames = decoded_frame_sequence_sha256(
+                                base_chunk
+                            )
+                            output_decoded_sha, output_frames = decoded_frame_sequence_sha256(
+                                output_chunk
+                            )
+                        except RuntimeError as exc:
+                            failures.append(f"chunk {chunk_id}: {exc}")
+                            continue
+                        expected_frames = end_frame - start_frame
+                        if base_frames != expected_frames or output_frames != expected_frames:
+                            failures.append(
+                                f"chunk {chunk_id}: decoded frames "
+                                f"{base_frames}/{output_frames}, expected={expected_frames}"
+                            )
+                        if base_decoded_sha == output_decoded_sha:
+                            failures.append(
+                                f"chunk {chunk_id}: changed chunk decoded pixels are identical"
+                            )
+                        else:
+                            changed_decoded_count += 1
+                        if str(entry.get("base_decoded_sha256", "")).lower() != base_decoded_sha:
+                            failures.append(
+                                f"chunk {chunk_id}: stale base decoded-frame SHA"
+                            )
+                        if str(entry.get("output_decoded_sha256", "")).lower() != output_decoded_sha:
+                            failures.append(
+                                f"chunk {chunk_id}: stale output decoded-frame SHA"
+                            )
+                        for cue_value in entry.get("changed_cue_ids", []):
+                            try:
+                                changed_chunk_cue_ids.add(int(cue_value))
+                            except (TypeError, ValueError):
+                                failures.append(
+                                    f"chunk {chunk_id}: invalid changed cue {cue_value!r}"
+                                )
+                if actual_changed_chunk_ids != declared_changed_chunk_ids:
+                    failures.append(
+                        "changed chunk IDs differ from manifest declaration: "
+                        f"actual={sorted(actual_changed_chunk_ids)}, "
+                        f"declared={sorted(declared_changed_chunk_ids)}"
+                    )
+                if changed_chunk_cue_ids != set(declared_changed):
+                    failures.append(
+                        "changed chunk cue coverage differs from patch changed_cue_ids: "
+                        f"chunks={sorted(changed_chunk_cue_ids)}, "
+                        f"patch={declared_changed}"
+                    )
+                timing_contract = json.loads(
+                    timing_contract_path.read_text(encoding="utf-8")
+                )
+                target_frames = int(timing_contract["target_frame_count"])
+                spans.sort()
+                expected_frame = 0
+                for start_frame, end_frame, chunk_id in spans:
+                    if start_frame != expected_frame:
+                        failures.append(
+                            f"chunk {chunk_id}: coverage jumps from "
+                            f"{expected_frame} to {start_frame}"
+                        )
+                    expected_frame = end_frame
+                if expected_frame != target_frames:
+                    failures.append(
+                        f"chunk coverage ends at {expected_frame}, expected={target_frames}"
+                    )
+                chunk_boundary_frames = [start for start, _, _ in spans[1:]]
+                chunk_metrics = {
+                    "chunk_verification_manifest_sha256": chunk_manifest_sha,
+                    "chunk_count": len(chunks),
+                    "changed_chunk_ids": sorted(actual_changed_chunk_ids),
+                    "unchanged_chunk_sha_verified": unchanged_sha_count,
+                    "changed_chunk_decoded_verified": changed_decoded_count,
+                }
+
         media_failures, media_metrics = _media_contract(
             output_path,
             timing_contract_path,
@@ -3628,14 +5960,39 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                 failures.append(str(exc))
             if black_events:
                 failures.append(f"black frame events={black_events[:20]}")
+        final_decode_pass = None
+        if chunk_scoped_mode and check.get("check_final_decode", True):
+            final_decode_pass, decode_detail = full_decode_once(output_path)
+            if not final_decode_pass:
+                failures.append(f"final patched master decode failed: {decode_detail}")
+        seam_black: list[int] = []
+        seam_observed = 0
+        if chunk_scoped_mode and check.get("check_transition_seams", True):
+            try:
+                seam_black, seam_observed = seam_black_frames(
+                    output_path,
+                    chunk_boundary_frames,
+                    total_frames=int(media_metrics["frames"]),
+                    amount=float(check.get("seam_black_amount", 99)),
+                    threshold=int(check.get("seam_black_threshold", 16)),
+                )
+            except (RuntimeError, ValueError) as exc:
+                failures.append(str(exc))
+            if seam_black:
+                failures.append(f"patched master black seam frames={seam_black[:20]}")
         metrics = {
             **media_metrics,
             **segment_metrics,
+            **chunk_metrics,
             "base_picture_sha256": base_sha,
             "output_picture_sha256": output_sha,
             "actual_changed_cue_ids": actual_changed,
             "declared_changed_cue_ids": declared_changed,
             "black_events": black_events,
+            "final_decode_pass": final_decode_pass,
+            "seam_black_frames": seam_black,
+            "seam_frames_observed": seam_observed,
+            "patch_verification_mode": check.get("patch_verification_mode", "legacy_v1"),
             "patch_manifest_sha256": file_sha256(path),
             "repair_approval_sha256": repair_approval_sha,
             "base_approval_sha256": base_approval_sha,
@@ -3663,7 +6020,12 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return False, "JSON root must be an object", {}
-        missing = [field for field in check.get("required_fields", []) if field not in data]
+        missing = []
+        for field in check.get("required_fields", []):
+            try:
+                dotted_value(data, field)
+            except KeyError:
+                missing.append(field)
         failures = [f"{field}: missing" for field in missing]
         failures.extend(assert_json_values(data, check.get("assertions", [])))
         if check_type == "live_state_assert":
@@ -3862,7 +6224,14 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             if actual_text != reference_text:
                 failures.append("lexical coverage differs from reference_text_path")
         final_end = entries[-1]["end"] if entries else 0.0
-        tolerance = float(check.get("end_tolerance_ms", 50)) / 1000
+        if "end_tolerance_ms" in check:
+            tolerance = float(check["end_tolerance_ms"]) / 1000
+        elif "final_end_tolerance_seconds" in check:
+            # Backward-compatible support for early production plans that
+            # expressed the same tolerance directly in seconds.
+            tolerance = float(check["final_end_tolerance_seconds"])
+        else:
+            tolerance = 0.05
         if abs(final_end - float(check["expected_end_seconds"])) > tolerance:
             failures.append(f"final_end={final_end:.3f}, expected={float(check['expected_end_seconds']):.3f}±{tolerance:.3f}")
         metrics = {

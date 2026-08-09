@@ -1,5 +1,19 @@
 # Pipeline and recovery map
 
+## Picture-generation core order
+
+Run long-form picture generation in this order. Do not use a full-length target-resolution render as a creative preview or skip an earlier gate because the later checks could theoretically catch the same defect.
+
+1. **Normalize and cache source proxies.** Bind each original source SHA-256 to one stable, seek-safe profile—by default 1080p/CFR30/H.264/`yuv420p`/BT.709/GOP≤30—in a required local non-iCloud scratch/cache, and reuse a passing proxy/index while both hashes remain current. Preserve original-source provenance; a proxy is a render and retrieval derivative, not a new source identity.
+2. **Retrieve and review semantic visual units.** Build 4–8 second units from complete narrative or dialogue beats, normally spanning several caption cues. Cues remain immutable clock mappings inside a unit; they do not force a new source seek, asset activation, or render segment.
+3. **Pass a real 30–60 second HyperFrames stress sample.** Use the production composition path and representative cuts/assets. Check every sample boundary, first and last frame, and the first decodable/activated frames after each asset change. Repair black, stale, duplicated, or decoder-lag frames before continuing.
+4. **Approve 720p aesthetic proxies.** Render the opening, ending, and at least one representative middle interval. Confirm hook, evidence density, continuity, shot cadence, emotional release, and final-image function before high-resolution production.
+5. **Perform one planned full-length production render at the contract target resolution, normally 1080p.** Start it only after the technical and aesthetic gates pass. A retry is allowed only for an objective render failure with a recorded repair; do not rerender the full master for ordinary creative feedback.
+6. **Run one complete final QA.** Probe, fully decode, and check frame count, duration, first/last frames, black gaps, transition seams, color, and audio policy once on the candidate production master. Store checker-versioned, hash-bound evidence and reuse it after lightweight fingerprint validation while inputs remain unchanged.
+7. **Patch incrementally when feedback arrives.** Regenerate only declared changed semantic units/chunks. Prove the base SHA, changed frame ranges, unchanged chunk hashes, and neighboring seams; do not fully decode and frame-hash both the accepted base and patched output merely to prove unchanged content.
+
+Keep timing-contract, source, proxy, index, match-plan, review, composition, chunk, and master hashes as one lineage across all seven stages. Keep the low-disk profile available without weakening any gate.
+
 ## Phase map
 
 | Phase | Required input | Required output | Gate before continuing |
@@ -9,10 +23,15 @@
 | Manuscript | source MD/TXT/PDF/DOCX | `clean_script.md`, `segments.md` | ordered coverage exactly once |
 | VoxCPM | reference WAV, exact transcript, segments | numbered WAVs, WAV manifest, QA | every clip valid; ASR coverage plausible |
 | Caption spine | WAVs, clean script, open draft | sequential narration, live-derived `timing_contract.json`, captions, SRT backup | ordered WAV count, measured live integer-frame end, start/end coverage, and zero adjacent duplicates |
-| Visual retrieval | immutable user-adjusted SRT, source footage, optional reference video | normalized index, retained candidate pool, provisional full match plan, selected/risk contact sheets, hash-bound review and repair manifests | every caption covered exactly once; all selected shots reviewed; risk, identity, opening, ending, range, reuse, and lineage gates pass |
-| Picture rebuild | reviewed current-generation match sheet | equal-duration picture-only render plus render lineage | metadata, frame contract, black/decode, input-hash, and review-hash gates pass |
-| BGM selection | recursive configured BGM-root inventory (`AI_VIDEO_MUSIC_ROOT`, default `$HOME/Music`) and stable narration | `audio/bgm_manifest.json`, chapter derivatives | every source resolves inside the configured root; provenance check passes |
-| Style | stable picture, narration, and verified Music-folder BGM | styled draft, cards, chapter BGM | visible hook/evidence/turn/thesis checks pass |
+| Source proxy preparation | source footage and target timing profile | original-source manifest, hash-keyed seek-safe CFR proxies, proxy probe/cache manifest | every proxy is decodable, correctly attributed, current for its source/profile hashes, and reusable without reindexing |
+| Visual retrieval | immutable user-adjusted SRT, cached proxy/index, optional reference video | semantic visual units with cue-to-frame mappings, retained candidate pool, provisional full match plan, selected/risk contact sheets, hash-bound review and repair manifests | every caption maps exactly once; all selected semantic units are reviewed; risk, identity, opening, ending, range, reuse, and lineage gates pass |
+| Visual grammar freeze | reviewed current-generation match sheet, timing contract, style rules, optional reference | production HyperFrames composition with authored opening/middle/ending, cards, geometry, typography, motion, and pace | composition intent and current review lineage are complete before technical rendering |
+| HyperFrames stress gate | reviewed current-generation match sheet, timing contract, frozen production composition | 30–60 second real HyperFrames stress sample and boundary/activation evidence | sample first/last frames, every asset activation, representative seams, and black/decode checks pass |
+| Aesthetic proxy gate | passing stress gate and current composition | 720p opening, ending, and representative-middle proxies with review verdicts | hook, continuity, cadence, evidence, emotional release, and final-image reviews pass |
+| Target-resolution production render | approved aesthetic proxies, disk preflight, current hashes | one planned full-length HyperFrames picture-only master and render lineage | required engine/profile, exact frame count, metadata, input-hash, review-hash, and audio-policy checks pass |
+| Final picture QA | candidate production master | one complete probe/decode/black/seam/frame/audio-policy report | all full-output checks pass once against the current master hash |
+| Incremental picture patch | accepted base master plus declared feedback delta | changed chunks, patched master, base/delta/unchanged-chunk lineage | changed chunks and adjacent seams pass; unchanged hashes match; no redundant full comparison of base and output |
+| BGM selection | recursive inventory of the configured BGM root (`AI_VIDEO_MUSIC_ROOT`, default `$HOME/Music`) and stable narration | `audio/bgm_manifest.json`, chapter derivatives | every source resolves inside the configured root; provenance check passes |
 | Acceptance | current draft and feedback | edit ledger, QA artifacts, report | every P0/P1 row has evidence-backed status |
 
 ## Resume rules
@@ -33,9 +52,10 @@
 - Recording analysis: one source chunk, one Vision pass, one OCR event group, or one mission-flow chapter per batch; never combine frame extraction, semantic assembly, and manuscript writing.
 - VoxCPM: one generated segment per batch.
 - Caption repair: at most ten adjacent rows and one defect class per batch.
-- Visual retrieval, long-form default: one complete index, one full provisional match-plan generation, one review bundle, or one hash-bound repair set per Harness batch. Every caption remains a separate retrieval query inside the plan. Machine proposal, human/visual review, repair, and render are separate actions and may not be collapsed into `offline_artifact`.
-- Visual retrieval, focused fallback: one caption or sub-six-second semantic unit per batch under `match_rows_per_batch=1`; use this only for a few corrections when a complete normalized index is unavailable.
-- Picture generation: one current-generation equal-duration master or one declared incremental patch per batch. Picture application is one live replacement and never includes caption mutation.
+- Source preparation: one proxy profile/cache generation or one current-generation normalized index per Harness batch. Reuse valid source-SHA/profile-hash cache entries rather than regenerating them.
+- Visual retrieval, long-form default: one complete index, one full semantic-unit match-plan generation, one review bundle, or one hash-bound repair set per Harness batch. Caption cues remain exact timing mappings inside semantic units, not separate default shot or render boundaries. Machine proposal, human/visual review, repair, and render are separate actions and may not be collapsed into `offline_artifact`.
+- Visual retrieval, focused fallback: one semantic visual unit per batch under `match_rows_per_batch=1`; use this only for a few corrections when a complete normalized index is unavailable.
+- Picture generation: one current-generation HyperFrames composition/render plan, one 30–60 second stress sample, one 720p opening/ending/middle proxy bundle, one planned target-resolution master, one final-QA report, or one declared incremental patch per batch. Picture application is one live replacement and never includes caption mutation.
 - Evidence cards: one card per batch.
 - BGM source selection: one Music-folder source decision per batch; record provenance before rendering derivatives.
 - BGM automation: one rhetorical interval per batch.

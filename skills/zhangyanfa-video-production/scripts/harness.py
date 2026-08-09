@@ -148,8 +148,14 @@ SPECIALIZED_VISUAL_TARGET_MARKERS = (
     "source_overlap",
     "opening_review",
     "ending_review",
+    "proxy_manifest",
+    "stress_manifest",
+    "aesthetic_proxy",
+    "hyperframes/stress",
+    "hyperframes/proxy",
 )
 VISUAL_ARTIFACT_DIRECTORY = "visuals"
+VIDEO_RENDERING_V2_PROFILE = "hyperframes_proxy_gated_v2"
 
 
 SAME_CORE = {
@@ -191,6 +197,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             "visual_match_repair_integrity",
             "picture_master_integrity",
             "picture_patch_integrity",
+            "source_proxy_manifest_integrity",
+            "hyperframes_stress_test_integrity",
+            "aesthetic_proxy_approval_integrity",
         ],
         "forbidden_unit_limit_keys": [
             "visual_indexes_per_batch",
@@ -199,6 +208,9 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             "match_repair_sets_per_batch",
             "picture_masters_per_batch",
             "picture_patches_per_batch",
+            "source_proxy_manifests_per_batch",
+            "hyperframes_stress_tests_per_batch",
+            "aesthetic_proxy_approvals_per_batch",
         ],
     },
     "adopt_verified_artifact": {
@@ -206,6 +218,22 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "live": False,
         "recipe_id": "offline.adopt-objective-check.v1",
         "verifier": "objective_plan_check",
+    },
+    "normalize_source_proxies": {
+        "mutation": "offline.visual.source_proxy",
+        "live": False,
+        "recipe_id": "offline.source-proxy-cache.v2",
+        "verifier": "objective_plan_check",
+        "fresh_objective_target_required": True,
+        "required_unit_limit_key": "source_proxy_manifests_per_batch",
+        "allowed_primary_types": ["source_proxy_manifest_integrity"],
+        "required_primary_config_fields": ["required_profile", "contract_path"],
+        "required_primary_config_values": {
+            "verify_source_sha256": True,
+            "verify_proxy_sha256": True,
+            "verify_max_gop_frames": True,
+            "check_full_decode": True,
+        },
     },
     "build_visual_index": {
         "mutation": "offline.visual.index",
@@ -223,6 +251,21 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "required_primary_config_values": {
             "require_frame_files": True,
             "verify_source_sha256": True,
+        },
+        "required_primary_config_fields_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: ["proxy_manifest_path"],
+        },
+        "prerequisite_check_type_groups_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: [["source_proxy_manifest_integrity"]],
+        },
+        "prerequisite_config_bindings_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: [
+                {
+                    "type": "source_proxy_manifest_integrity",
+                    "primary_field": "proxy_manifest_path",
+                    "prerequisite_field": "path",
+                }
+            ],
         },
     },
     "build_match_plan": {
@@ -252,6 +295,18 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             "require_candidate_ids": True,
             "require_index_binding": True,
             "require_source_manifest_binding": True,
+        },
+        "required_primary_config_values_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: {
+                "require_semantic_visual_units": True,
+                "min_semantic_unit_duration_seconds": 4,
+                "max_semantic_unit_duration_seconds": 8,
+                "min_pool_candidates": 8,
+                "preferred_pool_candidates": 12,
+                "normal_pool_max_candidates": 12,
+                "risk_pool_max_candidates": 32,
+                "candidate_pool_granularity": "semantic_visual_units_v2",
+            }
         },
         "prerequisite_check_type_groups": [["visual_index_integrity"]],
         "prerequisite_config_bindings": [
@@ -297,7 +352,18 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             "require_candidate_pool_binding": True,
             "require_source_manifest_binding": True,
         },
-        "prerequisite_check_type_groups": [["visual_match_plan_integrity"]],
+        "required_primary_config_values_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: {
+                "review_granularity": "semantic_visual_units_v2",
+                "candidate_pool_granularity": "semantic_visual_units_v2",
+            }
+        },
+        "prerequisite_check_type_groups": [
+            [
+                "visual_match_plan_integrity",
+                "visual_match_repair_integrity",
+            ]
+        ],
         "prerequisite_config_bindings": [
             {
                 "type": "visual_match_plan_integrity",
@@ -311,6 +377,21 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             },
             {
                 "type": "visual_match_plan_integrity",
+                "primary_field": "source_manifest_path",
+                "prerequisite_field": "source_manifest_path",
+            },
+            {
+                "type": "visual_match_repair_integrity",
+                "primary_field": "match_sheet_path",
+                "prerequisite_field": "after_match_sheet_path",
+            },
+            {
+                "type": "visual_match_repair_integrity",
+                "primary_field": "candidate_pool_path",
+                "prerequisite_field": "after_candidate_pool_path",
+            },
+            {
+                "type": "visual_match_repair_integrity",
                 "primary_field": "source_manifest_path",
                 "prerequisite_field": "source_manifest_path",
             },
@@ -342,6 +423,19 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             "require_repair_sequence_gates": True,
             "require_source_manifest_binding": True,
         },
+        "required_primary_config_values_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: {
+                "require_semantic_visual_units": True,
+                "min_semantic_unit_duration_seconds": 4,
+                "max_semantic_unit_duration_seconds": 8,
+                "min_pool_candidates": 8,
+                "preferred_pool_candidates": 12,
+                "normal_pool_max_candidates": 12,
+                "risk_pool_max_candidates": 32,
+                "candidate_pool_granularity": "semantic_visual_units_v2",
+                "review_granularity": "semantic_visual_units_v2",
+            }
+        },
         "prerequisite_check_type_groups": [["visual_selection_review_integrity"]],
         "prerequisite_config_bindings": [
             {
@@ -366,6 +460,120 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             },
         ],
     },
+    "run_hyperframes_stress_test": {
+        "mutation": "offline.picture.stress_test",
+        "live": False,
+        "recipe_id": "offline.hyperframes-real-stress-test.v2",
+        "verifier": "objective_plan_check",
+        "fresh_objective_target_required": True,
+        "required_unit_limit_key": "hyperframes_stress_tests_per_batch",
+        "allowed_primary_types": ["hyperframes_stress_test_integrity"],
+        "required_primary_config_fields": [
+            "sample_path",
+            "source_proxy_manifest_path",
+            "match_sheet_path",
+            "composition_path",
+            "render_plan_path",
+        ],
+        "required_primary_config_values": {
+            "required_engine": "hyperframes",
+            "minimum_duration_seconds": 30,
+            "maximum_duration_seconds": 60,
+            "check_full_decode": True,
+            "check_black_frames": True,
+            "check_transition_seams": True,
+            "required_risk_classes": [
+                "shortest_unit",
+                "hard_cut",
+                "media_element_activation",
+            ],
+            "require_all_declared_asset_classes": True,
+        },
+        "prerequisite_check_type_groups": [
+            {
+                "types": [
+                    "visual_selection_review_integrity",
+                    "visual_match_repair_integrity",
+                ],
+                "required_metrics": {"workflow_ready": True},
+            },
+            ["source_proxy_manifest_integrity"],
+        ],
+        "prerequisite_config_bindings": [
+            {
+                "type": "visual_selection_review_integrity",
+                "primary_field": "match_sheet_path",
+                "prerequisite_field": "match_sheet_path",
+            },
+            {
+                "type": "visual_match_repair_integrity",
+                "primary_field": "match_sheet_path",
+                "prerequisite_field": "after_match_sheet_path",
+            },
+            {
+                "type": "source_proxy_manifest_integrity",
+                "primary_field": "source_proxy_manifest_path",
+                "prerequisite_field": "path",
+            },
+        ],
+    },
+    "approve_aesthetic_proxy": {
+        "mutation": "offline.picture.aesthetic_proxy",
+        "live": False,
+        "recipe_id": "offline.hyperframes-720p-aesthetic-proxy.v2",
+        "verifier": "objective_plan_check",
+        "fresh_objective_target_required": True,
+        "required_unit_limit_key": "aesthetic_proxy_approvals_per_batch",
+        "allowed_primary_types": ["aesthetic_proxy_approval_integrity"],
+        "required_primary_config_fields": [
+            "proxy_path",
+            "stress_manifest_path",
+            "match_sheet_path",
+            "composition_path",
+            "render_plan_path",
+        ],
+        "required_primary_config_values": {
+            "required_engine": "hyperframes",
+            "expected_width": 1280,
+            "expected_height": 720,
+            "require_opening_review": True,
+            "require_middle_review": True,
+            "require_ending_review": True,
+            "required_decisions": [
+                "opening_structure",
+                "ending_structure",
+                "geometry",
+                "typography",
+                "motion",
+                "pace",
+                "uid",
+                "framing",
+            ],
+        },
+        "prerequisite_check_type_groups": [["hyperframes_stress_test_integrity"]],
+        "prerequisite_config_bindings": [
+            {
+                "type": "hyperframes_stress_test_integrity",
+                "primary_field": "stress_manifest_path",
+                "prerequisite_field": "path",
+            },
+            {
+                "type": "hyperframes_stress_test_integrity",
+                "primary_field": "match_sheet_path",
+                "prerequisite_field": "match_sheet_path",
+            },
+            {
+                "type": "hyperframes_stress_test_integrity",
+                "primary_field": "composition_path",
+                "prerequisite_field": "composition_path",
+            },
+            {
+                "type": "hyperframes_stress_test_integrity",
+                "primary_field": "render_plan_path",
+                "prerequisite_field": "render_plan_path",
+            },
+        ],
+    },
     "render_picture_master": {
         "mutation": "offline.picture.render",
         "live": False,
@@ -386,6 +594,55 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             "require_segment_manifest": True,
             "require_approval_match_binding": True,
             "require_approval_sequence_gates": True,
+        },
+        "required_primary_config_fields_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: [
+                "aesthetic_proxy_approval_path",
+                "composition_path",
+                "render_plan_path",
+            ],
+        },
+        "required_primary_config_values_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: {
+                "render_unit_mode": "semantic_visual_units_v2",
+                "check_full_decode": True,
+                "check_transition_seams": True,
+            }
+        },
+        "prerequisite_check_type_groups_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: [
+                {
+                    "types": ["aesthetic_proxy_approval_integrity"],
+                    "required_metrics": {"workflow_ready": True},
+                }
+            ],
+        },
+        "prerequisite_config_bindings_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: [
+                {
+                    "type": "aesthetic_proxy_approval_integrity",
+                    "primary_field": "aesthetic_proxy_approval_path",
+                    "prerequisite_field": "path",
+                },
+                {
+                    "type": "aesthetic_proxy_approval_integrity",
+                    "primary_field": "match_sheet_path",
+                    "prerequisite_field": "match_sheet_path",
+                },
+                {
+                    "type": "aesthetic_proxy_approval_integrity",
+                    "primary_field": "composition_path",
+                    "prerequisite_field": "composition_path",
+                },
+                {
+                    "type": "aesthetic_proxy_approval_integrity",
+                    "primary_field": "render_plan_path",
+                    "prerequisite_field": "render_plan_path",
+                },
+            ],
+        },
+        "max_successes_per_run_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: 1,
         },
         "prerequisite_check_type_groups": [
             {
@@ -437,9 +694,25 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
             "output_picture_path",
         ],
         "required_primary_config_values": {
-            "require_segment_manifests": True,
             "check_black_frames": True,
-            "verify_decoded_segment_hashes": True,
+        },
+        "required_primary_config_values_by_profile": {
+            "hyperframes_required_v1": {
+                "require_segment_manifests": True,
+                "verify_decoded_segment_hashes": True,
+            },
+            VIDEO_RENDERING_V2_PROFILE: {
+                "patch_verification_mode": "chunk_scoped_v2",
+                "require_segment_manifests": False,
+                "verify_decoded_segment_hashes": False,
+                "verify_unchanged_chunk_sha256": True,
+                "verify_changed_chunk_decoded_frames": True,
+                "check_final_decode": True,
+                "check_transition_seams": True,
+            },
+        },
+        "required_primary_config_fields_by_profile": {
+            VIDEO_RENDERING_V2_PROFILE: ["chunk_verification_manifest_path"],
         },
         "prerequisite_check_type_groups": [
             {
@@ -2000,6 +2273,187 @@ def find_plan_check(root: Path, check_id: str) -> dict[str, Any] | None:
     return next((check for check in plan.get("checks", []) if check.get("id") == check_id), None)
 
 
+EXPENSIVE_OBJECTIVE_CHECK_TYPES = {
+    "source_proxy_manifest_integrity",
+    "hyperframes_stress_test_integrity",
+    "aesthetic_proxy_approval_integrity",
+    "picture_master_integrity",
+    "picture_patch_integrity",
+}
+OBJECTIVE_CACHE_SCHEMA_VERSION = 1
+
+
+def objective_cache_path(root: Path) -> Path:
+    return root / "harness/objective_check_cache.json"
+
+
+def objective_dependency_fingerprint(path: Path) -> dict[str, Any]:
+    resolved = path.expanduser().resolve()
+    stat = resolved.stat()
+    result = {
+        "path": str(resolved),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "device": stat.st_dev,
+        "inode": stat.st_ino,
+    }
+    if resolved.is_file():
+        result["sha256"] = sha256_file(resolved)
+    return result
+
+
+def objective_dependency_matches(value: object) -> bool:
+    if not isinstance(value, dict) or not value.get("path"):
+        return False
+    candidate = Path(str(value["path"])).expanduser()
+    if not candidate.exists():
+        return False
+    stat = candidate.stat()
+    stable_fields = {
+        "path": str(candidate.resolve()),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "device": stat.st_dev,
+        "inode": stat.st_ino,
+    }
+    if all(value.get(field) == actual for field, actual in stable_fields.items()):
+        return True
+    if candidate.is_file() and value.get("sha256"):
+        current_sha = sha256_file(candidate)
+        if current_sha == value.get("sha256"):
+            value.update(stable_fields)
+            return True
+    return False
+
+
+def metric_dependency_paths(root: Path, value: object) -> set[Path]:
+    result: set[Path] = set()
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if (
+                isinstance(child, str)
+                and (key == "path" or key.endswith("_path"))
+                and child.strip()
+            ):
+                candidate = Path(child).expanduser()
+                if not candidate.is_absolute():
+                    candidate = root / candidate
+                if candidate.exists():
+                    result.add(candidate.resolve())
+            result.update(metric_dependency_paths(root, child))
+    elif isinstance(value, list):
+        for child in value:
+            result.update(metric_dependency_paths(root, child))
+    return result
+
+
+def objective_check_dependencies(
+    root: Path,
+    check: dict[str, Any],
+    metrics: dict[str, Any],
+) -> list[dict[str, Any]]:
+    paths: set[Path] = set()
+    for key, value in check.items():
+        if (
+            isinstance(value, str)
+            and (key == "path" or key.endswith("_path"))
+            and value.strip()
+        ):
+            candidate = Path(value).expanduser()
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            if candidate.exists():
+                paths.add(candidate.resolve())
+    paths.update(metric_dependency_paths(root, metrics))
+    return [
+        objective_dependency_fingerprint(candidate)
+        for candidate in sorted(paths, key=lambda item: str(item))
+    ]
+
+
+def read_objective_cache(root: Path) -> dict[str, Any]:
+    path = objective_cache_path(root)
+    if not path.is_file():
+        return {"schema_version": OBJECTIVE_CACHE_SCHEMA_VERSION, "entries": {}}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": OBJECTIVE_CACHE_SCHEMA_VERSION, "entries": {}}
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != OBJECTIVE_CACHE_SCHEMA_VERSION
+        or not isinstance(value.get("entries"), dict)
+    ):
+        return {"schema_version": OBJECTIVE_CACHE_SCHEMA_VERSION, "entries": {}}
+    return value
+
+
+def run_check_cached(
+    root: Path,
+    check: dict[str, Any],
+    *,
+    force: bool = False,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Reuse a PASS only while config, checker, manifests, and media SHA stay fixed."""
+
+    if check.get("type") not in EXPENSIVE_OBJECTIVE_CHECK_TYPES:
+        return run_check(root, check)
+    checker_path = Path(__file__).with_name("run_objective_checks.py")
+    checker_sha = sha256_file(checker_path)
+    config_sha = canonical_digest(check)
+    cache_key = f"{check.get('id', '')}:{config_sha}:{checker_sha}"
+    cache = read_objective_cache(root)
+    entry = cache.get("entries", {}).get(cache_key)
+    if not force and isinstance(entry, dict):
+        dependencies = entry.get("dependencies", [])
+        if (
+            isinstance(dependencies, list)
+            and dependencies
+            and all(objective_dependency_matches(item) for item in dependencies)
+        ):
+            atomic_json(objective_cache_path(root), cache)
+            metrics = dict(entry.get("metrics", {}))
+            metrics["objective_cache_reused"] = True
+            metrics["objective_cache_dependency_count"] = len(dependencies)
+            return True, str(entry.get("detail", "cached PASS")), metrics
+    passed, detail, metrics = run_check(root, check)
+    if passed:
+        dependencies = objective_check_dependencies(root, check, metrics)
+        cache.setdefault("entries", {})[cache_key] = {
+            "check_id": check.get("id"),
+            "check_type": check.get("type"),
+            "checker_sha256": checker_sha,
+            "check_config_sha256": config_sha,
+            "verified_at": utc_now(),
+            "dependencies": dependencies,
+            "detail": detail,
+            "metrics": metrics,
+        }
+        atomic_json(objective_cache_path(root), cache)
+        metrics = dict(metrics)
+        metrics["objective_cache_reused"] = False
+        metrics["objective_cache_dependency_count"] = len(dependencies)
+    return passed, detail, metrics
+
+
+def run_plan_cached(root: Path) -> dict[str, Any]:
+    plan = read_json(root / "verification_plan.json", "verification plan")
+    results = []
+    for check in plan.get("checks", []):
+        passed, detail, metrics = run_check_cached(root, check)
+        results.append(
+            {
+                "id": check.get("id"),
+                "type": check.get("type"),
+                "required": check.get("required", True),
+                "pass": passed,
+                "detail": detail,
+                "metrics": metrics,
+            }
+        )
+    return {"schema_version": plan.get("schema_version"), "results": results}
+
+
 def validate_prerequisite_check_type_groups(
     root: Path,
     groups: list[Any],
@@ -2029,7 +2483,7 @@ def validate_prerequisite_check_type_groups(
         attempts = []
         passed_result = None
         for check in candidates:
-            passed, detail, metrics = run_check(root, check)
+            passed, detail, metrics = run_check_cached(root, check)
             attempt = {
                 "check_id": check.get("id"),
                 "type": check.get("type"),
@@ -2146,6 +2600,23 @@ def validate_objective_binding(check: dict[str, Any], mutation: str) -> None:
     forbidden = {"batch_ledger.tsv", "run_manifest.json", "harness/state.json", "harness/events.jsonl"}
     if any(str(target) in forbidden for target in targets):
         raise ValueError(f"check {check.get('id')} is self-referential and cannot prove a production action")
+
+
+def action_profile_value(
+    contract: dict[str, Any],
+    spec: dict[str, Any],
+    field: str,
+    default: Any,
+) -> Any:
+    """Return a video-rendering-profile-specific action constraint when present."""
+
+    profile = str(
+        contract.get("workflow_profiles", {}).get("video_rendering", "")
+    )
+    values = spec.get(f"{field}_by_profile", {})
+    if isinstance(values, dict) and profile in values:
+        return values[profile]
+    return default
 
 
 def specialized_visual_targets(check: dict[str, Any]) -> list[str]:
@@ -2569,7 +3040,13 @@ def command_prepare(args: argparse.Namespace) -> int:
         if args.unit_count <= 0 or args.unit_count > int(limits[args.unit_limit_key]):
             raise ValueError(f"unit_count={args.unit_count} exceeds {args.unit_limit_key}={limits[args.unit_limit_key]}")
         successes = int(state.get("action_success_count", {}).get(args.action_key, 0))
-        if spec.get("max_successes_per_run") is not None and successes >= int(spec["max_successes_per_run"]):
+        max_successes = action_profile_value(
+            contract,
+            spec,
+            "max_successes_per_run",
+            spec.get("max_successes_per_run"),
+        )
+        if max_successes is not None and successes >= int(max_successes):
             raise ValueError(f"{args.action_key} may succeed at most once per run")
 
         expectations = dict(spec.get("expect", {}))
@@ -2622,9 +3099,20 @@ def command_prepare(args: argparse.Namespace) -> int:
                     "offline_artifact cannot mutate indexed-bulk visual targets; "
                     "use the registered visual index/plan/review/repair/render/patch action"
                 )
+            required_primary_config_fields = list(
+                spec.get("required_primary_config_fields", [])
+            )
+            required_primary_config_fields.extend(
+                action_profile_value(
+                    contract,
+                    spec,
+                    "required_primary_config_fields",
+                    [],
+                )
+            )
             missing_primary_config = [
                 field
-                for field in spec.get("required_primary_config_fields", [])
+                for field in required_primary_config_fields
                 if objective_check.get(field) in (None, "", [], {})
             ]
             if missing_primary_config:
@@ -2632,11 +3120,20 @@ def command_prepare(args: argparse.Namespace) -> int:
                     f"{args.action_key} primary check is missing required config "
                     f"{missing_primary_config}"
                 )
+            required_primary_config_values = dict(
+                spec.get("required_primary_config_values", {})
+            )
+            required_primary_config_values.update(
+                action_profile_value(
+                    contract,
+                    spec,
+                    "required_primary_config_values",
+                    {},
+                )
+            )
             invalid_primary_config = [
                 f"{field}={objective_check.get(field)!r}, expected {expected!r}"
-                for field, expected in spec.get(
-                    "required_primary_config_values", {}
-                ).items()
+                for field, expected in required_primary_config_values.items()
                 if objective_check.get(field) != expected
             ]
             if invalid_primary_config:
@@ -2645,16 +3142,36 @@ def command_prepare(args: argparse.Namespace) -> int:
                     + "; ".join(invalid_primary_config)
                 )
             validate_objective_binding(objective_check, spec["mutation"])
+        prerequisite_groups = list(spec.get("prerequisite_check_type_groups", []))
+        prerequisite_groups.extend(
+            action_profile_value(
+                contract,
+                spec,
+                "prerequisite_check_type_groups",
+                [],
+            )
+        )
         prerequisite_results = validate_prerequisite_check_type_groups(
             root,
-            spec.get("prerequisite_check_type_groups", []),
+            prerequisite_groups,
         )
         if objective_check is not None:
+            prerequisite_bindings = list(
+                spec.get("prerequisite_config_bindings", [])
+            )
+            prerequisite_bindings.extend(
+                action_profile_value(
+                    contract,
+                    spec,
+                    "prerequisite_config_bindings",
+                    [],
+                )
+            )
             validate_prerequisite_config_bindings(
                 root,
                 objective_check,
                 prerequisite_results,
-                spec.get("prerequisite_config_bindings", []),
+                prerequisite_bindings,
             )
         supplemental_objective_check = None
         if spec.get("objective_check_required"):
@@ -2840,9 +3357,19 @@ def command_begin(args: argparse.Namespace) -> int:
         if args.token != action.get("token"):
             raise ValueError("stale or foreign action token")
         spec = ACTION_REGISTRY[action["action_key"]]
+        contract = read_json(root / "request_contract.json", "request contract")
+        prerequisite_groups = list(spec.get("prerequisite_check_type_groups", []))
+        prerequisite_groups.extend(
+            action_profile_value(
+                contract,
+                spec,
+                "prerequisite_check_type_groups",
+                [],
+            )
+        )
         prerequisite_results = validate_prerequisite_check_type_groups(
             root,
-            spec.get("prerequisite_check_type_groups", []),
+            prerequisite_groups,
         )
         if not spec["live"]:
             primary_check = find_plan_check(root, action["check_id"])
@@ -2850,11 +3377,22 @@ def command_begin(args: argparse.Namespace) -> int:
                 raise ValueError(
                     f"objective check disappeared: {action['check_id']}"
                 )
+            prerequisite_bindings = list(
+                spec.get("prerequisite_config_bindings", [])
+            )
+            prerequisite_bindings.extend(
+                action_profile_value(
+                    contract,
+                    spec,
+                    "prerequisite_config_bindings",
+                    [],
+                )
+            )
             validate_prerequisite_config_bindings(
                 root,
                 primary_check,
                 prerequisite_results,
-                spec.get("prerequisite_config_bindings", []),
+                prerequisite_bindings,
             )
         if spec["live"]:
             preflight = action.get("ui_route_preflight") or {}
@@ -3480,10 +4018,24 @@ def command_verify(args: argparse.Namespace) -> int:
                     failures.append(str(exc))
                     forbidden_ui_failure = True
         else:
+            contract = read_json(
+                root / "request_contract.json", "request contract"
+            )
+            prerequisite_groups = list(
+                spec.get("prerequisite_check_type_groups", [])
+            )
+            prerequisite_groups.extend(
+                action_profile_value(
+                    contract,
+                    spec,
+                    "prerequisite_check_type_groups",
+                    [],
+                )
+            )
             try:
                 metrics["prerequisite_checks"] = validate_prerequisite_check_type_groups(
                     root,
-                    spec.get("prerequisite_check_type_groups", []),
+                    prerequisite_groups,
                 )
             except Exception as exc:
                 failures.append(f"prerequisite objective check: {exc}")
@@ -3492,11 +4044,22 @@ def command_verify(args: argparse.Namespace) -> int:
                 failures.append(f"objective check disappeared: {action['check_id']}")
             else:
                 try:
+                    prerequisite_bindings = list(
+                        spec.get("prerequisite_config_bindings", [])
+                    )
+                    prerequisite_bindings.extend(
+                        action_profile_value(
+                            contract,
+                            spec,
+                            "prerequisite_config_bindings",
+                            [],
+                        )
+                    )
                     validate_prerequisite_config_bindings(
                         root,
                         check,
                         metrics.get("prerequisite_checks", []),
-                        spec.get("prerequisite_config_bindings", []),
+                        prerequisite_bindings,
                     )
                 except Exception as exc:
                     failures.append(
@@ -3510,7 +4073,9 @@ def command_verify(args: argparse.Namespace) -> int:
                         fresh_evidence([target_path.resolve()], action["started_at"])
                     except Exception as exc:
                         failures.append(f"objective target freshness: {exc}")
-                passed, detail, check_metrics = run_check(root, check)
+                passed, detail, check_metrics = run_check_cached(
+                    root, check, force=True
+                )
                 metrics["objective_check"] = {"pass": passed, "detail": detail, "metrics": check_metrics}
                 if not passed:
                     failures.append(detail)
@@ -3551,7 +4116,7 @@ def command_verify(args: argparse.Namespace) -> int:
                         fresh_evidence([target_path.resolve()], action["started_at"])
                     except Exception as exc:
                         failures.append(f"objective target freshness: {exc}")
-                passed, detail, check_metrics = run_check(root, check)
+                passed, detail, check_metrics = run_check_cached(root, check)
                 metrics["supplemental_objective_check"] = {
                     "id": action["objective_check_id"],
                     "pass": passed,
@@ -3787,7 +4352,7 @@ def command_advance(args: argparse.Namespace) -> int:
             check = find_plan_check(root, check_id)
             if not check:
                 raise ValueError(f"phase gate check not found: {check_id}")
-            passed, detail, metrics = run_check(root, check)
+            passed, detail, metrics = run_check_cached(root, check)
             check_results.append({"id": check_id, "pass": passed, "detail": detail, "metrics": metrics})
             if not passed:
                 raise ValueError(f"phase gate failed: {check_id}: {detail}")
@@ -3796,6 +4361,12 @@ def command_advance(args: argparse.Namespace) -> int:
             candidate = Path(value).expanduser()
             if not candidate.is_absolute():
                 candidate = root / candidate
+            candidate = candidate.resolve()
+            if candidate == (root / "run_manifest.json").resolve():
+                raise ValueError(
+                    "run_manifest.json is mutable control-plane state and cannot "
+                    "be sealed as a phase artifact"
+                )
             artifacts.append(fingerprint(candidate))
         seal = {"phase": state["phase"], "sealed_at": utc_now(), "checks": check_results, "artifacts": artifacts}
         seal_path = root / f"harness/phase_seals/{state['phase']}.json"
@@ -3903,7 +4474,23 @@ def command_rebind(args: argparse.Namespace) -> int:
         state = load_state(root)
         if args.authorized_by != "user":
             raise ValueError("rebind requires explicit user authority: --authorized-by user")
-        if state.get("open_action") or state["lifecycle"] in {"prepared", "in_action", "repair_required", "closing", "complete"}:
+        retained_blocked_offline_action = None
+        if state.get("open_action"):
+            action = state["open_action"]
+            spec = ACTION_REGISTRY[action["action_key"]]
+            if state["lifecycle"] != "blocked" or spec["live"]:
+                raise ValueError(
+                    "rebind requires no open action; only a user-authorized "
+                    "blocked offline action may be retained for revalidation"
+                )
+            retained_blocked_offline_action = action
+        if state["lifecycle"] in {
+            "prepared",
+            "in_action",
+            "repair_required",
+            "closing",
+            "complete",
+        }:
             raise ValueError("rebind requires no open action and a non-complete run")
         previous = {
             "contract": state.get("contract_fingerprint"),
@@ -3916,10 +4503,26 @@ def command_rebind(args: argparse.Namespace) -> int:
         state["sealed_phases"] = {}
         state["completed_actions"] = []
         state["recipe_success_streak"] = {}
-        state["blocked"] = None
-        state["next_action"] = None
-        state["lifecycle"] = "ready"
-        append_event(root, state, "CONTRACT_REBOUND", reason=args.reason, previous=previous)
+        if retained_blocked_offline_action is None:
+            state["blocked"] = None
+            state["next_action"] = None
+            state["lifecycle"] = "ready"
+        append_event(
+            root,
+            state,
+            "CONTRACT_REBOUND",
+            reason=args.reason,
+            previous=previous,
+            retained_blocked_offline_action=(
+                {
+                    "batch_id": retained_blocked_offline_action.get("batch_id"),
+                    "action_key": retained_blocked_offline_action.get("action_key"),
+                    "recipe_id": retained_blocked_offline_action.get("recipe_id"),
+                }
+                if retained_blocked_offline_action
+                else None
+            ),
+        )
         save_state(root, state)
     print(json.dumps(status_payload(root, state), ensure_ascii=False, indent=2))
     return 0
@@ -3946,7 +4549,7 @@ def command_close(args: argparse.Namespace) -> int:
         if bad:
             raise ValueError(f"batch ledger contains non-closed rows: {bad}")
 
-        report = run_plan(root)
+        report = run_plan_cached(root)
         failed = [row for row in report["results"] if row["required"] and not row["pass"]]
         if failed:
             raise ValueError("full objective plan failed: " + "; ".join(f"{row['id']}: {row['detail']}" for row in failed))

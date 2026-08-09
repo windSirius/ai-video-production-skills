@@ -2,6 +2,8 @@
 
 Use `scripts/harness.py` as the sole authority for production order after the request contract exists. The harness is a fail-closed transaction manager: it authorizes one bounded action, captures the last-known-good state, and accepts the action only when fresh evidence proves the intended delta.
 
+For every newly initialized video-rendering run, require `workflow_profiles.video_rendering=hyperframes_proxy_gated_v2`. Existing runs already frozen under `hyperframes_required_v1` retain their v1 action and verification wording; do not relabel or silently migrate their accepted artifacts. The profile frozen in the request contract decides which rules below apply.
+
 Do not edit `harness/state.json`, `harness/events.jsonl`, or harness-managed `H####` ledger rows by hand. Do not perform a live mutation before `begin`, and do not repeat a mutation after a crash or lost tool response.
 
 ## Permanent forbidden UI target
@@ -216,12 +218,15 @@ All live registry actions inherit the permanent Jianying Assistant exclusion. It
 |---|---|---|
 | `offline_artifact` | `offline.objective-check.v1` | Use a verification-plan check that explicitly declares the matching mutation and observed targets; the checked output must be newer than `ACTION_BEGUN`. Under `indexed_bulk_reviewed_v1`, it cannot target anything in `visuals/` or any recognized visual-workflow artifact name. |
 | `adopt_verified_artifact` | `offline.adopt-objective-check.v1` | Read-only adoption of an existing artifact. Use a `none.adopt` check and strong hash; never claim the artifact was generated in this action. |
-| `build_visual_index` | `offline.indexed-vision-ocr-corpus.v1` | Build one normalized, source-identified Vision/OCR corpus under `visual_indexes_per_batch=1`; bind only to `visual_index_integrity`. |
-| `build_match_plan` | `offline.indexed-three-candidate-plan.v1` | Build one complete provisional match generation under `match_plans_per_batch=1`; every row must remain `machine_proposed`, retain the full candidate pool (32 preferred; fewer requires documented expansion evidence), and bind only to `visual_match_plan_integrity`. One plan may cover the whole SRT, but every cue remains independently checkable. |
-| `review_match_plan` | `offline.selected-and-risk-contact-review.v1` | Produce one complete review bundle under `match_review_bundles_per_batch=1`; selected evidence covers all cues and A/B/C plus identity evidence covers derived risk rows. Bind only to `visual_selection_review_integrity`. |
-| `repair_match_plan` | `offline.match-plan-incremental-repair.v1` | Apply one base-hash-bound repair set under `match_repair_sets_per_batch=1`; declare exact changed cues, preserve machine history, rebind every repaired selection to the after-candidate-pool, and bind only to `visual_match_repair_integrity`. |
-| `render_picture_master` | `offline.equal-duration-picture-master.v1` | Render one current-generation, reviewed, exact-frame, video-only master under `picture_masters_per_batch=1`; bind only to `picture_master_integrity`. |
-| `patch_picture_master` | `offline.picture-master-incremental-patch.v1` | Patch one declared set of cues/frame ranges under `picture_patches_per_batch=1`; prove base/output lineage, decoded-frame-derived changed and unchanged segment hashes, renewed reviews, and full frame contract with `picture_patch_integrity`. `verify_decoded_segment_hashes=true` is mandatory. |
+| `normalize_source_proxies` | `offline.source-proxy-cache.v2` | Under `hyperframes_proxy_gated_v2`, normalize all source media into the contract profile in the local non-iCloud cache, key proxies by source SHA/profile hash, bind source and proxy SHA-256 values plus the contract profile in one manifest, and verify it only with `source_proxy_manifest_integrity` under `source_proxy_manifests_per_batch=1`. The default `1080p_cfr30_h264_gop30_yuv420p_bt709_v1` profile is 1920×1080, CFR 30, H.264, yuv420p, BT.709, GOP no greater than 30. |
+| `build_visual_index` | `offline.indexed-vision-ocr-corpus.v1` | Build one normalized, source-identified Vision/OCR corpus under `visual_indexes_per_batch=1`; bind only to `visual_index_integrity`. Under v2 the index must resolve through the passing source-proxy manifest, never through mutable iCloud originals. |
+| `build_match_plan` | `offline.indexed-three-candidate-plan.v1` | Build one complete provisional match generation under `match_plans_per_batch=1`; every row remains `machine_proposed` and binds only to `visual_match_plan_integrity`. Under v2, use 4–8 second semantic visual units on the canonical SRT cue clock, retain 8–12 candidates for a normal unit, cap risk pools at 32, and expose at least three ranked A/B/C choices for risk review. Existing v1 runs retain the preferred-32/fewer-with-expansion-evidence policy. |
+| `review_match_plan` | `offline.selected-and-risk-contact-review.v1` | Produce one complete review bundle under `match_review_bundles_per_batch=1` and bind only to `visual_selection_review_integrity`. V2 requires `review_granularity=semantic_visual_units_v2`: selected evidence covers every visual unit exactly once, cue/frame mapping is audited separately, and A/B/C head/middle/tail plus identity evidence covers each derived risk unit. Existing v1 runs retain cue-row review granularity. |
+| `repair_match_plan` | `offline.match-plan-incremental-repair.v1` | Apply one base-hash-bound repair set under `match_repair_sets_per_batch=1`; declare exact changed cues, preserve machine history, rebind every repaired selection to the after-candidate-pool, and bind only to `visual_match_repair_integrity`. V2 repairs retain the same 4–8 second semantic-unit and 8–12/32 pool limits. |
+| `run_hyperframes_stress_test` | `offline.hyperframes-real-stress-test.v2` | Under v2, render one real 30–60 second HyperFrames stress sample under `hyperframes_stress_tests_per_batch=1`, covering every declared proxy-profile/production-asset class and the required shortest-unit, hard-cut, and media-element-activation risks; require card/overlay coverage only when used. Bind the current composition/render-plan hashes and verify concrete activation/boundary evidence with `hyperframes_stress_test_integrity`; full decode, black-frame, activation-frame, and transition-seam checks are mandatory. |
+| `approve_aesthetic_proxy` | `offline.hyperframes-720p-aesthetic-proxy.v2` | Under v2, render and review one HyperFrames 1280×720 opening/middle/ending proxy under `aesthetic_proxy_approvals_per_batch=1`. Bind only to `aesthetic_proxy_approval_integrity`, and freeze opening/ending structure, UID, framing, geometry, typography, motion, and pace before the target-resolution render. |
+| `render_picture_master` | `offline.equal-duration-picture-master.v1` | Render one current-generation, reviewed, exact-frame, video-only master under `picture_masters_per_batch=1`; bind only to `picture_master_integrity`. V2 additionally requires the passing aesthetic approval, `render_unit_mode=semantic_visual_units_v2`, full decode, and transition-seam QA, and permits only one successful target-resolution master per run. |
+| `patch_picture_master` | `offline.picture-master-incremental-patch.v1` | Patch one declared set of cues/frame ranges under `picture_patches_per_batch=1` and bind only to `picture_patch_integrity`. V2 requires `patch_verification_mode=chunk_scoped_v2`: unchanged chunk file SHA equality, decoded-frame verification of changed chunks, adjacent-boundary seam checks, and one assembled-output decode/black/seam pass. It must not repeat a full decoded-frame hash comparison of the accepted base. Existing `hyperframes_required_v1` runs retain mandatory segment manifests and `verify_decoded_segment_hashes=true`. |
 | `rename_unicode` | `jianying.ax-or-clipboard-unicode.v1` | Use a verified accessibility value setter or clipboard route for Chinese; do not retry raw keystroke guesses. |
 | `append_narration_clip` | `jianying.media-identity-quick-add.v1` | Verify basename, probed duration, and SHA before selecting the media card; select the identified card, click its visible `+`, go to End, and prove clip count plus exact cumulative end. The first clip may create the narration track (`0 → 1`); later clips must keep it at one. Never infer identity from left/right card position. |
 | `append_narration_loop` | `jianying.media-identity-quick-add-loop.v1` | Available only after two consecutive single-item successes. Use `narration_loop_items_per_batch`, one manifest with every basename and expected cumulative end, and stop/undo at the first mismatch. |
@@ -238,33 +243,43 @@ All live registry actions inherit the permanent Jianying Assistant exclusion. It
 
 ## Indexed bulk visual workflow
 
-For a full picture rebuild, the Harness unit is one complete stage transaction, not one caption row:
+For a new v2 full picture rebuild, the Harness unit is one complete stage transaction, not one caption row:
 
 ```text
-build_visual_index
+normalize_source_proxies
+  → build_visual_index
   → build_match_plan
   → review_match_plan
   → zero or more repair_match_plan + renewed review
+  → run_hyperframes_stress_test
+  → approve_aesthetic_proxy
   → render_picture_master
   → zero or more repair_match_plan + patch_picture_master
   → apply_picture_master
 ```
 
-`scripts/init_run.py` writes `visuals/indexed_bulk_checks.template.json` with all six strict check definitions. Copy the current stage checks into `verification_plan.json`, replace versioned snapshot/output paths, then `rebind`; do not omit required flags to simplify a run.
+That order is mandatory for `hyperframes_proxy_gated_v2`: source-SHA/profile-hash proxies in a local non-iCloud cache (default 1080p/CFR30/H.264/yuv420p/BT.709/GOP≤30) → proxy-bound index → 4–8 second semantic-unit match and review on the canonical SRT cue clock → real 30–60 second HyperFrames stress render → HyperFrames 720p opening/middle/ending aesthetic approval → one target-resolution master → one complete master QA → chunk-scoped repairs only. A normal semantic unit retains 8–12 candidates; a risk unit may expand to no more than 32 and must present at least three ranked A/B/C alternatives. The aesthetic approval freezes structure, UID, framing, geometry, typography, motion, and pace; changing a frozen decision requires returning through the appropriate repair/review and approval gates rather than silently altering the master.
 
-The six offline actions require their registered primary check type and a currently passing prerequisite check from the preceding stage. `prepare`, `begin`, and `verify` rerun prerequisite checks and require their configured paths to match the current primary check: index files → plan, match sheet/pool → review, review sheet/pool → repair, approval/current sheet → render, and repair/prior approved media → patch. When several generations pass, Harness selects the passing prerequisite whose bound paths match the current generation instead of accepting the first old result. A full plan may not use `offline_artifact` to disguise hundreds of cue rows as one generic output. In the indexed profile, the generic action is denied for the entire `visuals/` target domain, including innocuous renamed files such as `visuals/plan.tsv`. Keep `match_rows_per_batch=1` only for the focused few-cue fallback.
+For an existing `hyperframes_required_v1` run, continue its already-frozen v1 sequence and segment-hash verification. Do not insert v2 gates retrospectively unless the user explicitly changes the contract and the Harness accepts a rebind.
+
+`scripts/init_run.py` writes `visuals/indexed_bulk_checks.template.json` with the registered strict check definitions. Copy the current stage checks into `verification_plan.json`, replace versioned snapshot/output paths, then `rebind`; do not omit required flags to simplify a run.
+
+The registered offline actions require their primary check type and a currently passing prerequisite check from the preceding stage. `prepare`, `begin`, and `verify` rerun prerequisite checks and require their configured paths to match the current primary check. Under v2 the bindings are proxy manifest → index → plan → review/repair → stress sample → aesthetic proxy approval → target master, then repair plus the prior accepted master/patch → chunk patch. A renewed review after repair must bind to the repair check's `after_match_sheet_path`, `after_candidate_pool_path`, and identical source manifest; it may not relabel the original match-plan manifest. When several generations pass, Harness selects the passing prerequisite whose bound paths match the current generation instead of accepting the first old result. A full plan may not use `offline_artifact` to disguise hundreds of cue rows as one generic output. In the indexed profile, the generic action is denied for the entire visual target domain, including proxy, stress, aesthetic-proxy, render, and patch artifacts. Keep `match_rows_per_batch=1` only for the focused few-cue fallback.
+
+For expensive source-proxy, stress, aesthetic-proxy, master, and patch checks, “rerun” may reuse the Harness-owned `objective_check_cache.json` only when the complete check configuration, checker-script SHA, and every dependency fingerprint remain current. Stable size/mtime/device/inode fingerprints reuse the earlier SHA-bound full-media result without another decode or full-file read; drift forces hashing and, when changed, the complete objective check. This is the only allowed way to avoid repeated accepted-base or proxy decoding during prerequisite and reporting steps.
 
 The machine proposal is never the approval gate. Require:
 
 - a retained candidate pool and exact canonical-SRT coverage;
-- selected-shot evidence for every cue;
-- A/B/C head/middle/tail evidence for risk rows;
+- under v2, selected-shot evidence exactly once per semantic visual unit plus an exact cue/frame-to-unit mapping; under v1, selected evidence for every cue;
+- under v2, A/B/C head/middle/tail evidence bound to each derived risk unit's candidate/source/range; under v1, the corresponding risk-row evidence;
 - explicit visual identity review for named-character claims;
 - separate sequence-level opening and ending reviews;
-- zero unresolved rows before render;
-- current hashes for the SRT, index, pool, match sheet, review, repair, timing contract, and render;
-- exact declared cue/frame deltas for every patch.
-- decoded-frame hashes for every unchanged and changed patch span;
+- zero unresolved semantic units under v2, or zero unresolved rows under v1, before render;
+- current hashes for the SRT, proxy manifest, index, pool, match sheet, review, repair, timing contract, HyperFrames composition/render plan, stress result, aesthetic approval, and render as applicable;
+- exact declared cue/frame deltas for every patch;
+- under v2, unchanged chunk-file SHA equality, decoded changed chunks, adjacent seam evidence, and a single assembled-output decode/black/seam pass; do not repeat a full accepted-base decoded-frame hash;
+- under an existing v1 run, decoded-frame hashes for every unchanged and changed patch span;
 - path and hash lineage that prevents a PASS artifact from an older generation approving a newer sheet, pool, or picture.
 
 Objective checks can prove coverage, source/range consistency, evidence existence, hashes, frame contracts, and whether a human-judgment field was recorded. They cannot infer that a character identification is semantically correct merely because an agent-authored JSON says `PASS`; the reviewer verdict and its concrete image evidence remain an explicit human-judgment gate.
@@ -355,9 +370,19 @@ Do not respond to failure by inventing a drag direction, hotspot, coordinate, ke
 
 Use `advance` only after all named phase-gate checks pass. Supply every accepted phase artifact with `--artifact`; the harness records strong hashes in `harness/phase_seals/`.
 
+Do not pass `run_manifest.json` as a phase artifact. It is mutable control-plane state: `advance` updates its current phase and timestamp, and `close` updates lifecycle metadata. The Harness rejects it before creating a seal so its own writes cannot create sealed-artifact drift. Seal the immutable production artifacts referenced by the manifest instead.
+
 On resume, reuse a sealed phase when its stat and hash remain valid. Do not rescan the workspace, regenerate accepted outputs, or rerun GUI setup. Contract, verification-plan, or sealed-artifact drift blocks the next mutation and requires deliberate revalidation.
 
 When the user explicitly changes scope or acceptance criteria, update the contract/plan while no action is open, then run `harness.py rebind RUN_DIR --authorized-by user --reason "..."`. Rebinding records the old fingerprints, invalidates every phase seal, and clears the final-action cursor so affected gates and final persistence must be proved again. Never edit the saved fingerprints directly.
+
+For a blocked offline action only, `rebind` may retain that same open action and
+the block when the user explicitly authorizes a verification-plan correction.
+This recovery updates the saved fingerprints but does not pass, cancel, retry,
+or unblock the action. Run `unblock --authorized-by user`, begin the returned
+retry token, recreate fresh action evidence, and verify normally. A blocked
+live action can never use this route; it still requires restoration evidence
+and the normal live-action recovery path.
 
 Perform offline generation, indexing, audits, and renders before opening one concentrated live-assembly window. Avoid alternating between asset generation and Jianying UI work.
 

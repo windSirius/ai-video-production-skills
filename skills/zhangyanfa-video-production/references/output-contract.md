@@ -14,6 +14,7 @@ harness/
   state.json
   events.jsonl
   pending_action.json
+  objective_check_cache.json
   lock
   checkpoints/
   checks/
@@ -40,6 +41,26 @@ narration/
   manifest.json
 captions/
   narration_backup.srt
+  canonical.srt
+sources/
+  proxy_manifest.json
+hyperframes/
+  project/
+    index.html
+  composition.json
+  environment.json
+  render_plan.json
+  check_result.json
+  render_manifest.json
+  stress/
+    stress_manifest.json
+    stress_sample.mp4
+    qa/
+  proxy/
+    aesthetic_proxy_720p.mp4
+    qa/
+  chunks/
+  qa/
 visuals/
   indexed_bulk_checks.template.json
   source_identity_manifest.json
@@ -49,7 +70,9 @@ visuals/
   cue_profiles.json
   candidate_pool.jsonl
   contact_sheets/
+    manifest.json
   match_sheet.tsv
+  match_plan_manifest.json
   selected_evidence/
   contact_sheets_final/
   candidate_review/
@@ -58,6 +81,11 @@ visuals/
     selected/
     risk/
   review_manifest.json
+  aesthetic_review/
+    approval.json
+    opening/
+    middle/
+    ending/
   repair_manifest.json
   repair_result.json
   repair_history.jsonl
@@ -66,7 +94,10 @@ visuals/
   patches/
     base_segment_manifest.tsv
     output_segment_manifest.tsv
-    picture_patch_manifest.json
+    chunks/
+    chunk_verification_manifest.json
+    patch_manifest.json
+    picture_only_patched.mp4
   render_manifest.json
   render_segment_manifest.tsv
   picture_only_vN.mp4
@@ -100,11 +131,36 @@ Existing project-specific names may be retained; register their paths in `run_ma
 - source manuscript, reference WAV, and reference transcript source;
 - narration directory, immutable SRT snapshot, normalized visual-index manifest, retained candidate pool, current-generation match sheet, review and repair manifests, picture render lineage/report, reference analysis, live opening/middle/ending QA, BGM manifest/master, ledger, and report paths;
 - `bgm_source_root` fixed to the absolute root resolved from `AI_VIDEO_MUSIC_ROOT`, defaulting to `$HOME/Music`;
+- `workflow_profiles.video_rendering=hyperframes_proxy_gated_v2` whenever a new run includes video generation; preserve `hyperframes_required_v1` only for an existing run whose contract was already frozen under v1;
+- source-proxy contract/profile hash, proxy manifest, local non-iCloud cache root, HyperFrames project/environment, stress sample/manifest, 720p aesthetic proxy/approval, integer-frame plan, target render manifest, one full-master QA result, current output, and chunk-patch lineage paths when video generation is active under v2;
 - exact project timecode when known;
 - game-recording source manifest, Vision index, mission-flow timeline, Claude handoff, and recording-analysis QA paths when that module is active;
 - export authorization and export path when applicable.
 
 Never store private credentials or browser session tokens in the manifest.
+
+## HyperFrames render contract minimum
+
+For every new `hyperframes_proxy_gated_v2` run, treat HyperFrames as the required composition, timing, validation, stress-test, proxy-approval, capture, and authored-render entry point. Direct FFmpeg invocation may normalize source proxies, probe media, and perform QA; it must not independently author, assemble, or replace the v2 picture master or any authored/output visual segment. An encoder invoked and controlled by HyperFrames remains part of the HyperFrames render path. Record:
+
+- CLI, Node, Chrome, FFmpeg, and ffprobe versions plus detected hardware encoders;
+- local non-iCloud proxy-cache root; source-SHA/profile-hash cache key, source SHA-256, proxy SHA-256, and contract-bound proxy profile; default `1080p_cfr30_h264_gop30_yuv420p_bt709_v1` parameters (1920×1080/CFR30/H.264/yuv420p/BT.709/GOP≤30) unless the request contract freezes another profile;
+- composition path and SHA-256, proxy-manifest/source-plan/review hashes, timing-contract hash, artifact role, width, height, fps, target frame count, and color policy;
+- free bytes before and after, estimated peak bytes, configured minimum reserve, frame-cache path, and selected profile;
+- the exact HyperFrames execution profile used; `hyperframes_static_segment_fallback_v1` is not authorized for a v2 run;
+- exact command arguments, actual encoder, worker count, cache policy, start/end timestamps, exit status, output path, media probe, output SHA-256, and QA evidence;
+- one frame-plan row per 4–8 second semantic visual unit with integer `start_frame` and `frame_count`, using the canonical SRT cue clock as the sole matching clock; require their ordered sum to equal `timing_contract.target_frame_count`;
+- the real 30–60 second HyperFrames stress manifest/sample, current composition/render-plan hashes, concrete activation/boundary ranges, and its full-decode, black-frame, transition-seam, declared proxy-profile/asset-class, and required-risk-class results; card/overlay coverage is conditional on those classes being used;
+- the HyperFrames 1280×720 aesthetic proxy, current composition/render-plan and passing-stress hashes, plus opening/middle/ending evidence and frozen decisions for opening/ending structure, UID, framing, geometry, typography, motion, and pace;
+- exactly one successful target-resolution master render followed by one accepted complete decode/black/seam QA result before any patch is authorized.
+
+On macOS, request GPU encoding and prefer VideoToolbox, but record the encoder actually selected. Hardware encoding is not assumed byte-identical across rerenders; bind the produced artifact by its post-render hash and use decoded-frame QA for equivalence.
+
+Use `hyperframes_low_disk_stream_v1` when projected free space would fall below the contract reserve. Disable persistent frame caching, use one worker and low-memory mode, and forbid `png-sequence`.
+
+Compatibility: an existing `hyperframes_required_v1` run may continue using an already-frozen `hyperframes_static_segment_fallback_v1` contract and its disclosed FFmpeg-authored pixels. That permission does not carry into v2 and must not be used to create a new v2 master or patch.
+
+Set `artifact_role=jianying_picture_master` for replacement media and require zero audio streams plus no burned captions. Permit captions and mixed audio only for `standalone_preview` or `authorized_final_export`; final export still requires explicit user authorization.
 
 ## Timing contract minimum
 
@@ -136,7 +192,9 @@ The master and chapter files may live under `RUN_DIR/audio/`, but they do not re
 - explicit in-scope and out-of-scope lists;
 - measurable success criteria, each bound to one unique check ID;
 - positive small-batch limits;
-- for `indexed_bulk_reviewed_v1`, unit limits of one visual index, one match-plan generation, one review bundle, one repair set, one picture master, or one picture patch per corresponding Harness batch; keep cue-row limits only for the focused fallback;
+- for new `hyperframes_proxy_gated_v2` runs, unit limits of one source-proxy manifest, one visual index, one match-plan generation, one review bundle, one repair set, one HyperFrames stress test, one aesthetic-proxy approval, one picture master, or one picture patch per corresponding Harness batch; keep cue-row limits only for the focused fallback;
+- the mandatory v2 order: local source-SHA/profile-hash proxies → proxy-bound index → 4–8 second semantic-unit matching/review with normal pools of 8–12 and risk pools capped at 32 with at least A/B/C → real 30–60 second HyperFrames stress render → HyperFrames 720p opening/middle/ending approval → one target-resolution master → one full QA → chunk-scoped patch;
+- existing v1 runs retain their frozen v1 unit limits and verification mode;
 - stop conditions for failed checks, missing authority, or invalid inputs.
 
 ## Batch ledger minimum
@@ -156,7 +214,10 @@ Let `scripts/harness.py` create and close `H####` rows. Require `unit_count` to 
 - each live action has immutable before, failed/post, and rollback checkpoints when applicable;
 - each live action records the action/recipe/pre-state-bound registered route fingerprint, exact semantic target/ancestor/per-step-layout sequence, just-in-time bounds and hit points, per-step pre-click authorization and evidence, and the complete harness-managed interaction-trace fingerprint;
 - each verifier result records batch, mutation, check, observed target, fresh evidence hashes, metrics, and pass state;
+- expensive v2 objective checks may be reused only through `harness/objective_check_cache.json`, keyed by check configuration plus checker SHA and bound to dependency SHA-256 values; unchanged size/mtime/device/inode fingerprints permit a lightweight reuse, while any fingerprint or checker change forces revalidation;
 - visual review, repair, render, and patch artifacts bind to the exact current SRT/index/pool/match-sheet hashes; orphan contact sheets and stale audit files are never implicitly accepted;
+- in v2, proxy/index lineage binds source and proxy SHA-256 plus the profile hash; stress evidence binds the current proxy manifest and match sheet; aesthetic approval binds the passing stress manifest and freezes structure, UID, framing, geometry, typography, motion, and pace; the target master binds that approval and uses `render_unit_mode=semantic_visual_units_v2`;
+- a v2 patch uses `patch_verification_mode=chunk_scoped_v2`, proves unchanged chunk file SHA equality, decodes changed chunks, checks adjacent seams, and runs one assembled-output decode/black/seam QA; it does not rerun a full decoded-frame hash comparison over the accepted base;
 - do not store the complete history only in `state.json`, and do not edit harness files manually.
 
 ## Reporting vocabulary
@@ -176,6 +237,12 @@ Report:
 - conclusion and explicit export state;
 - exact timeline duration, resolution, frame rate, picture duration, narration count, caption count, and disabled-caption count;
 - OCR frame count, semantic visual-unit count, three-candidate audit result, strict black-gap result, and stable live replacement filename;
+- source-proxy profile/profile hash, proxy-manifest SHA, local non-iCloud cache location, source/proxy SHA coverage, and proxy-integrity result;
+- canonical SRT cue-clock binding, 4–8 second semantic-unit compliance, normal-pool 8–12 compliance, risk-pool maximum 32, and risk A/B/C coverage;
+- real HyperFrames stress-sample duration, risk/asset-class coverage, decode/black/seam result, and stress-manifest SHA;
+- HyperFrames 720p opening/middle/ending approval evidence and the frozen structure, UID, framing, geometry, typography, motion, and pace decisions;
+- target-resolution master count, `semantic_visual_units_v2` render mode, target output SHA, and the single full-master decode/black/seam QA result;
+- for each v2 patch, changed/unchanged chunk IDs, unchanged chunk SHA result, changed-chunk decoded-frame result, adjacent-seam result, assembled-output decode/black/seam result, and explicit confirmation that the accepted base was not subjected to a repeated full decoded-frame hash pass;
 - chapter/BGM plan, Music-folder source paths, provenance-check result, and verified live settings;
 - thesis/evidence-card time ranges and functions;
 - QA results, inherited issues, low-confidence visual matches, and human-audition limits;

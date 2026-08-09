@@ -12,11 +12,13 @@ from pathlib import Path
 from harness import (
     FINAL_ACTION_ORDER,
     SCHEMA_VERSION,
+    VIDEO_RENDERING_V2_PROFILE,
     fingerprint_matches,
     final_order_passed,
+    run_plan_cached,
     specialized_visual_targets,
 )
-from run_objective_checks import SUPPORTED_TYPES, run_plan
+from run_objective_checks import SUPPORTED_TYPES
 
 
 REQUIRED_MANIFEST_KEYS = ("title", "current_phase", "status", "artifacts")
@@ -32,12 +34,24 @@ MUSIC_SOURCE_ROOT = str(
     Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
 )
 VISUAL_WORKFLOW_RULES = {
+    "offline.visual.source_proxy": (
+        "source_proxy_manifests_per_batch",
+        "source_proxy_manifest_integrity",
+    ),
     "offline.visual.index": ("visual_indexes_per_batch", "visual_index_integrity"),
     "offline.visual.match_plan": ("match_plans_per_batch", "visual_match_plan_integrity"),
     "offline.visual.review": ("match_review_bundles_per_batch", "visual_selection_review_integrity"),
     "offline.visual.repair": ("match_repair_sets_per_batch", "visual_match_repair_integrity"),
     "offline.picture.render": ("picture_masters_per_batch", "picture_master_integrity"),
     "offline.picture.patch": ("picture_patches_per_batch", "picture_patch_integrity"),
+    "offline.picture.stress_test": (
+        "hyperframes_stress_tests_per_batch",
+        "hyperframes_stress_test_integrity",
+    ),
+    "offline.picture.aesthetic_proxy": (
+        "aesthetic_proxy_approvals_per_batch",
+        "aesthetic_proxy_approval_integrity",
+    ),
 }
 
 
@@ -113,6 +127,36 @@ def validate_contract(contract: dict, plan: dict, errors: list[str]) -> None:
         errors.append("request contract must forbid external BGM sources")
     if bgm_policy.get("allow_generated_sources") is not False:
         errors.append("request contract must forbid generated BGM sources")
+    video_profile = contract.get("workflow_profiles", {}).get("video_rendering")
+    if video_profile == VIDEO_RENDERING_V2_PROFILE:
+        source_proxy = contract.get("render_policy", {}).get("source_proxy", {})
+        required_proxy_fields = {
+            "profile",
+            "width",
+            "height",
+            "fps",
+            "codec",
+            "pixel_format",
+            "color_space",
+            "color_primaries",
+            "color_transfer",
+            "max_gop_frames",
+            "cache_root",
+        }
+        missing_proxy_fields = sorted(required_proxy_fields - set(source_proxy))
+        if missing_proxy_fields:
+            errors.append(
+                f"v2 source proxy policy missing fields={missing_proxy_fields}"
+            )
+        cache_root = str(source_proxy.get("cache_root", "")).strip()
+        if not cache_root or not Path(cache_root).expanduser().is_absolute():
+            errors.append("v2 source proxy cache_root must be absolute")
+        elif "Library/Mobile Documents" in str(
+            Path(cache_root).expanduser().resolve()
+        ):
+            errors.append("v2 source proxy cache_root must resolve outside iCloud")
+        if source_proxy.get("require_outside_icloud") is not True:
+            errors.append("v2 source proxy policy must require outside-iCloud cache")
 
 
 def validate_tsv_status(path: Path, accepted: tuple[str, ...], errors: list[str], label: str, priorities: set[str] | None = None) -> None:
@@ -206,6 +250,7 @@ def validate_visual_workflow(
         if row.get("status") == "pass" and row.get("mutation") in VISUAL_WORKFLOW_RULES
     ]
     profile = contract.get("workflow_profiles", {}).get("visual_matching")
+    video_profile = contract.get("workflow_profiles", {}).get("video_rendering")
     checks = {
         check.get("id"): check
         for check in plan.get("checks", [])
@@ -239,10 +284,23 @@ def validate_visual_workflow(
             "visual workflow actions require workflow_profiles.visual_matching="
             "indexed_bulk_reviewed_v1"
         )
+    v2_mutations = {
+        "offline.visual.source_proxy",
+        "offline.picture.stress_test",
+        "offline.picture.aesthetic_proxy",
+    }
+    if video_profile != VIDEO_RENDERING_V2_PROFILE and any(
+        row.get("mutation") in v2_mutations for _, row in visual_rows
+    ):
+        errors.append(
+            "v2 video-generation actions require workflow_profiles.video_rendering="
+            f"{VIDEO_RENDERING_V2_PROFILE}"
+        )
     limits = contract.get("unit_limits", {})
     seen: list[str] = []
     last_render_or_patch = -1
     last_repair = -1
+    production_render_count = 0
     for sequence, (line_number, row) in enumerate(visual_rows):
         mutation = row["mutation"]
         limit_key, check_type = VISUAL_WORKFLOW_RULES[mutation]
@@ -275,12 +333,42 @@ def validate_visual_workflow(
                 errors.append(
                     f"visual batch line {line_number} has no post-master declared repair"
                 )
-
+        if video_profile == VIDEO_RENDERING_V2_PROFILE:
+            if mutation == "offline.visual.index" and "offline.visual.source_proxy" not in seen:
+                errors.append(
+                    f"visual batch line {line_number} indexed before source proxies"
+                )
+            elif mutation == "offline.picture.stress_test" and not any(
+                value in seen
+                for value in ("offline.visual.review", "offline.visual.repair")
+            ):
+                errors.append(
+                    f"visual batch line {line_number} stress-tested before review"
+                )
+            elif mutation == "offline.picture.aesthetic_proxy" and (
+                "offline.picture.stress_test" not in seen
+            ):
+                errors.append(
+                    f"visual batch line {line_number} approved a proxy before stress test"
+                )
+            elif mutation == "offline.picture.render" and (
+                "offline.picture.aesthetic_proxy" not in seen
+            ):
+                errors.append(
+                    f"visual batch line {line_number} rendered production master "
+                    "before 720p aesthetic approval"
+                )
         seen.append(mutation)
         if mutation == "offline.visual.repair":
             last_repair = sequence
         if mutation in {"offline.picture.render", "offline.picture.patch"}:
             last_render_or_patch = sequence
+        if mutation == "offline.picture.render":
+            production_render_count += 1
+    if video_profile == VIDEO_RENDERING_V2_PROFILE and production_render_count > 1:
+        errors.append(
+            f"v2 visual workflow permits one production render, got {production_render_count}"
+        )
 
 
 def validate_harness(root: Path, final: bool, errors: list[str]) -> dict:
@@ -356,7 +444,7 @@ def main() -> int:
         errors.append("run_manifest status must be complete for final validation")
 
     if not errors:
-        report = run_plan(root)
+        report = run_plan_cached(root)
         result_by_id = {row["id"]: row for row in report["results"]}
         for row in report["results"]:
             if row["required"] and not row["pass"]:

@@ -1,6 +1,6 @@
 ---
 name: zhangyanfa-video-production
-description: "Run Alan's modular ‘障眼法考据’ video-production pipeline from complete game-mission recording analysis to a verified Jianying Pro draft: use Apple Vision to build an evidence-backed mission flow and Claude handoff; then adapt scripts, clone narration, freeze captions, run indexed bulk sentence-to-shot retrieval with layered visual review and hash-bound repairs, safely replace an equal-duration picture track, apply Alan's style, select BGM only from the configured local music root, and perform acceptance QA. Use for 游戏任务录屏解析, Apple Vision剧情流程识别, 给Claude准备任务事实底稿, 一条龙制作, 从录屏到文稿再到剪映, 批量逐句配画, 根据剪映字幕重新配画, 参考视频开头结尾, or continuing any verified production module."
+description: "Run Alan's modular ‘障眼法考据’ video-production pipeline from complete game-mission recording analysis to a verified Jianying Pro draft: use Apple Vision to build an evidence-backed mission flow and Claude handoff; then adapt scripts, clone narration, freeze captions, normalize hash-cached render proxies, match reviewed 4–8 second semantic visual units to the caption clock, pass a real HyperFrames stress render and 720p aesthetic preview before one full-resolution master, apply chunk-scoped verified repairs, safely replace an equal-duration picture track, apply Alan's style, select BGM from the configured local music root, and perform acceptance QA. Use for 游戏任务录屏解析, Apple Vision剧情流程识别, 给Claude准备任务事实底稿, 一条龙制作, 从录屏到文稿再到剪映, HyperFrames视频生成, 批量逐句配画, 根据剪映字幕重新配画, 参考视频开头结尾, or continuing any verified production module."
 ---
 
 # 障眼法视频一条龙
@@ -8,6 +8,14 @@ description: "Run Alan's modular ‘障眼法考据’ video-production pipeline
 Produce a saved, reviewable Jianying draft while preserving recoverability and evidence for every stage.
 
 Treat the pipeline as independently stoppable modules. Each active module must produce its own handoff artifacts and pass its own gate. Do not force later modules when the user only requested recording analysis, script preparation, picture rematching, BGM, or acceptance work.
+
+## Core production order
+
+For every full picture rebuild, preserve this order. The caption cue is a clock and evidence locator; the semantic visual unit is the retrieval, review, composition, and render-cut unit.
+
+`freeze timing → normalize/cache technical proxies → build/reuse the visual index → plan and review 4–8 second semantic visual units → run a real 30–60 second HyperFrames stress render → obtain approval on 720p opening/middle/ending previews → render one full-resolution master → run one final full-output QA → patch only changed chunks with incremental verification → replace in Jianying`
+
+Do not collapse, swap, or defer the proxy, stress-render, or aesthetic-preview gates until after a full master. Do not expand a reviewed semantic-unit plan back into one render element or hard cut per caption cue.
 
 ## Operating contract
 
@@ -22,6 +30,16 @@ Treat the pipeline as independently stoppable modules. Each active module must p
 - Prefer automatic, objective verification. Use human visual or audio review only for irreducible aesthetic judgment, and never use it to replace an available file, timing, count, metadata, ASR, or duplication check.
 - When complete game-mission recordings are supplied, analyze them before manuscript work. Use Apple Vision evidence to create a full chronological mission-flow and Claude handoff; do not invent missing dialogue or lore conclusions.
 - Treat narration timing as the spine. Import every narration clip first, measure Jianying's live integer-frame end, and freeze that value before large picture or BGM work. Never derive the final frame clock only from the arithmetic sum of WAV durations because per-clip import quantization can accumulate.
+- Keep the caption clock and picture-cut plan separate. Map every cue to exactly one semantic visual unit, but cut only where visual meaning, evidence, or rhythm requires it. A one-caption-one-video-element plan is invalid unless every boundary has an explicit visual reason.
+- Before indexing or HyperFrames authoring, create or reuse source-SHA-bound technical proxies in a local non-iCloud scratch/cache: normally 1080p, CFR 30, H.264, `yuv420p`, BT.709, and GOP no longer than 30 frames. Record source/proxy hashes and media probes. Stop before proxy generation if a local non-iCloud scratch path cannot be resolved. FFmpeg is permitted for technical normalization, probing, and QA only; it does not become the authoring or output-render authority.
+- Require HyperFrames as the authoring, timing, validation, and render entry point for every newly generated moving-image asset in this pipeline, including animated cards, picture masters, preview renders, and authorized final renders. Do not silently replace it with an unrelated renderer.
+- On macOS, request HyperFrames GPU encoding and prefer VideoToolbox after proving the encoder is available. Treat software encoding as an explicit recorded fallback, not an unreported downgrade.
+- Before any full-length master, render a representative 30–60 second composition through the real HyperFrames capture and encoder path. Include every declared normalized proxy-profile class and production asset class derived from the mixed original sources, plus short visual units, hard cuts, transitions, source-video heads, and cards/overlays when used; do not try to include every source file, and never feed unnormalized originals merely to create codec variety. Inspect activation frames and seams, lock the proved source-head strategy—normally a two-output-frame source-poster hold—and repeat the stress gate until it passes.
+- After the stress gate, render 720p aesthetic previews for the opening, a representative middle passage, and the ending. Obtain explicit user approval or bind an already accepted reference before freezing opening/ending structure, UID treatment, geometry, typography, motion, and pace.
+- Authorize exactly one full-resolution master render after technical and aesthetic gates pass. Use the contract target resolution, normally 1080p. Do not render competing full-length variants for review; a later defect or requested change uses chunk-scoped repair unless it invalidates the composition globally.
+- Validate a patch incrementally: prove unchanged chunks by their stored file SHA-256, fully decode changed chunks, inspect both adjacent boundaries, then run one decode/black-gap/seam pass on the assembled current output. Do not repeatedly compute decoded-frame hashes for the entire unchanged base and output.
+- Reuse a passing, hash-bound full-decode/black/seam result while the checked artifact, manifest, checker profile, and dependencies remain unchanged. Harness prerequisite and reporting steps may revalidate fingerprints, but they must not rerun expensive full-media checks solely for administrative freshness.
+- When disk headroom is insufficient, keep HyperFrames as the composition, frame-clock, capture, and output-render authority and switch to the registered low-disk profile. Do not dump the full video's decoded or rendered frames to disk. Use HyperFrames streaming capture with one worker and low-memory mode; if that path cannot preserve the reserve, stop instead of substituting an FFmpeg-authored master.
 - When the user has manually adjusted Jianying captions, treat the live timing and its exported SRT snapshot as the sole authority for picture matching. Do not rerun Manuscript Match, semantic resegmentation, duplicate repair, or caption styling unless explicitly requested.
 - Resume from verified existing artifacts. Do not regenerate accepted narration, captions, or picture tracks merely to follow the nominal order.
 - Preserve the user's open browser and Jianying state. Re-query UI after every meaningful action.
@@ -44,7 +62,7 @@ Read and follow each installed skill only when its phase is active:
 
 1. `voxcpm-batch-dubbing` for narration generation.
 2. `jianying-dubbing-postproduction` for audio placement, Manuscript Match, caption styling, cleanup, and SRT backup.
-3. `jianying-sentence-visual-matching` for exhaustive sentence-to-shot retrieval, match-sheet auditing, and picture-track rebuilding.
+3. `jianying-sentence-visual-matching` for indexed retrieval, match-sheet auditing, and picture-track rebuilding. In this umbrella workflow, group cues into semantic visual units before using its retrieval mechanics; do not inherit a legacy one-caption-one-cut plan.
 4. `jianying-zhangyanfa-style` for Alan's narrative, subtitle, audio, evidence-card, and picture grammar.
 5. `jianying-acceptance-polish` for the edit ledger, technical audit, focused refinements, and final pre-export QA.
 6. Read and follow `computer-use` before live Jianying or Chrome interaction. Read `browser` before controlling a browser tab.
@@ -57,13 +75,15 @@ The active module's non-negotiable rules take precedence over shortcuts in this 
 2. Inspect only inputs and artifacts not already covered by a valid phase seal. Identify the newest artifact that has both a file and passing objective evidence; do not repeatedly inventory an unchanged workspace.
 3. Recursively inventory the configured BGM root before planning BGM. Ignore library databases and non-media files. Record the absolute resolved path for every candidate actually used.
 4. Define one concrete deliverable, explicit in-scope and out-of-scope boundaries, and measurable success criteria. Bind every criterion to a check ID. Keep the resolved BGM source root in the request contract.
-5. Run `scripts/init_run.py` with the title, objective, deliverable, criterion/check pairs, and out-of-scope boundaries. It creates the harness for a new run. For an existing run, update its contract deliberately instead of calling initialization as an implicit contract rewrite; with explicit user authority run `harness.py rebind` to record the change and invalidate prior phase seals.
-6. Complete `verification_plan.json`, including required check `bgm_sources_within_music`, then run `scripts/validate_run.py RUN_DIR --contract-only`. Do not mutate production state until this passes.
-7. Run `python3 scripts/harness.py resume RUN_DIR` again. Do not proceed until it returns one legal `prepare` action for the current phase.
-8. Create a recoverable project/picture/subtitle state before any replacement or deletion.
+5. When any video generation is in scope, bind `render_policy.required_engine=hyperframes`, the minimum free-space reserve, the artifact role, source-proxy profile, stress-render profile, aesthetic-preview profile, and final render profile before rendering. Existing runs require a deliberate contract update and Harness rebind; do not let `init_run.py` silently rewrite them.
+6. Run `scripts/init_run.py` with the title, objective, deliverable, criterion/check pairs, and out-of-scope boundaries. It creates the harness for a new run. For an existing run, update its contract deliberately instead of calling initialization as an implicit contract rewrite; with explicit user authority run `harness.py rebind` to record the change and invalidate prior phase seals.
+7. Complete `verification_plan.json`, including required check `bgm_sources_within_music` plus the HyperFrames environment and render-manifest checks whenever video generation is in scope, then run `scripts/validate_run.py RUN_DIR --contract-only`. Do not mutate production state until this passes.
+8. Run `python3 scripts/harness.py resume RUN_DIR` again. Do not proceed until it returns one legal `prepare` action for the current phase.
+9. Create a recoverable project/picture/subtitle state before any replacement or deletion.
 
 Read [references/pipeline.md](references/pipeline.md) for phase inputs, gates, and recovery behavior.
 Read [references/verification.md](references/verification.md) before defining batches or objective checks.
+Read [references/hyperframes-render-workflow.md](references/hyperframes-render-workflow.md) before authoring, previewing, rendering, patching, or exporting any generated video asset.
 Read [references/game-recording-vision-analysis.md](references/game-recording-vision-analysis.md) whenever the user supplies a full game recording, asks to parse a mission from start to finish, or wants a fact package for Claude. This module precedes manuscript work and may be delivered independently.
 Read [references/ocr-caption-visual-workflow.md](references/ocr-caption-visual-workflow.md) whenever matching or rebuilding pictures from captions, especially after the user has manually adjusted subtitles or supplied a reference video.
 
@@ -117,25 +137,24 @@ Read [references/ocr-caption-visual-workflow.md](references/ocr-caption-visual-w
 - Freeze the verified narration/caption timing before picture retrieval.
 - If the captions are already user-adjusted, export a fresh immutable SRT snapshot, record its caption count and final end time, and skip all automatic caption mutation.
 
-### 5. Retrieve and match visuals
+### 5. Normalize, index, and match semantic visual units
 
-- Use the `indexed_bulk_reviewed_v1` profile for a full rebuild or roughly 30 or more visual units. Treat every caption as an independent semantic query, but search the complete Vision/OCR corpus and generate one full provisional plan in a single bounded `build_match_plan` stage. One Harness unit is one plan, not one subtitle row.
-- Keep `match_rows_per_batch=1` only for a few focused corrections. Do not register a full plan as `offline_artifact`; use `build_visual_index`, `build_match_plan`, `review_match_plan`, `repair_match_plan`, `render_picture_master`, and `patch_picture_master`.
-- Probe every source, then build coarse and dense visual indexes plus an OCR index of visible Chinese and English text. Use `scripts/vision_ocr.swift` on extracted frames when macOS Vision is available.
-- Preserve every caption exactly once; merge adjacent lines only for visual continuity and normally keep a unit under six seconds.
-- Retain a complete configurable candidate pool, normally 32–64 viable results when the source supports it, then expose at least three distinct A/B/C candidates per unit. Rank subject, action, location, emotion, narrative function, exact on-screen dialogue/evidence, source chronology, transition safety, and prior reuse.
-- Penalize menus, task lists, settings, logos, loading screens, long UI text, black/overexposed transitions, source heads/tails, repeated emotional shots, and footage that merely shares a character while contradicting the sentence.
+- For a full rebuild or roughly 30 or more cues, use the Harness bulk visual workflow. One Harness unit is one complete plan, not one subtitle row. Keep `match_rows_per_batch=1` only for a few focused corrections; never register a full plan as a generic `offline_artifact`.
+- Probe every source and create or reuse the source-SHA-bound technical proxy before indexing it. Build coarse, dense, and OCR indexes from the proxy while retaining exact mappings back to source timecodes. Use `scripts/vision_ocr.swift` on extracted frames when macOS Vision is available.
+- Convert the frozen cue clock into contiguous semantic visual units, normally 4–8 seconds. Each unit must declare `visual_unit_id`, integer start/end frame, covered cue IDs, narrative function, visual intent, and reason for each visual cut. Permit a longer intentional hold or a shorter evidence beat only with a recorded reason.
+- Preserve every caption cue exactly once in the cue-to-unit mapping. Cue boundaries may locate narration and evidence, but they must not create extra source seeks, media activations, chunk boundaries, or render elements.
+- Search the complete Vision/OCR corpus once per semantic unit. Retain 8–12 viable candidates for a normal unit and expose at least three distinct A/B/C choices. Expand the pool and search ladder up to 32 candidates only for a derived risk class: named identity, quotation/evidence, opening/ending, low confidence, OCR/UI/black hazard, reuse/overlap collision, or a specific user-reported correction. A free-form label cannot turn every unit into a risk unit. Fewer than eight viable normal candidates or fewer than three distinct risk choices remains unresolved with search evidence; it is not an implicit waiver.
+- Rank subject, action, location, emotion, narrative function, exact on-screen dialogue/evidence, source chronology, transition safety, and prior reuse. Penalize menus, task lists, settings, logos, loading screens, long UI text, black/overexposed transitions, unsafe source heads/tails, repeated emotional shots, and footage that merely shares a character while contradicting the narration.
 - If local candidates remain weak after the expansion ladder, use the external-sourcing rules in [references/external-sourcing.md](references/external-sourcing.md).
-- Optimize provisional selections across the whole timeline for exact-range reuse, adjacency, chronology, hook/climax shot budgets, and continuity. Machine output must remain `machine_proposed`; it cannot approve itself.
-- Review a selected-shot contact sheet for every unit. Review A/B/C head/middle/tail evidence for named identities, quotations, cards/external assets, low-confidence or OCR-collision rows, repeated/overlapping ranges, opening, ending, and every user-reported correction.
+- Optimize provisional selections across the whole timeline for exact-range reuse, adjacency, chronology, hook/climax shot budgets, and continuity. Machine output remains `machine_proposed`; it cannot approve itself.
+- Review a selected-shot contact sheet for every semantic visual unit. Review A/B/C head/middle/tail evidence for named identities, quotations, cards/external assets, low-confidence or OCR-collision units, repeated/overlapping ranges, opening, ending, and every user-reported correction.
 - Verify visible character identity independently from OCR or dialogue. A frame that mentions a name does not prove that the named character is on screen.
-- Bind the candidate pool, match sheet, selected review, repair decisions, render manifest, and QA to the current SRT/index/match-sheet hashes. A changed match sheet invalidates prior review and audit files unless a declared delta chain proves the unchanged rows.
-- Record exact source in/out, candidate scores, original machine confidence, retry evidence, reuse group, selected candidate ID, review state, and selection reason. Do not overwrite an initially weak machine score with a later human decision.
-- Require complete selected review, risk-row candidate review, identity resolution, global range/reuse audits, and independent opening/ending PASS before rendering.
-- When a reference video is supplied, inspect its opening and ending separately and transfer only its structural grammar: hook density, evidence timing, emotional release, and final-image function. Do not copy its shot order blindly.
-- Prefer an equal-duration, picture-only intermediate render for large deterministic rebuilds. After feedback, patch only declared cue/range IDs, preserve recoverable prior generations, re-review changed rows, rerun global audits, and prove unchanged ranges before replacing the main picture clip.
+- Bind proxy manifest, index, cue-to-unit map, candidate pool, match sheet, selected review, repair decisions, HyperFrames composition, and QA to current hashes. A changed proxy or match sheet invalidates downstream evidence unless a declared delta chain proves unchanged units.
+- Record exact source in/out, proxy identity, candidate scores, original machine confidence, retry evidence, reuse group, selected candidate ID, review state, and selection reason. Do not overwrite an initially weak machine score with a later human decision.
+- Require complete selected review, risk-unit candidate review, identity resolution, global range/reuse audits, and independent opening/ending review before HyperFrames preflight. When a reference video is supplied, transfer only its structural grammar: hook density, evidence timing, emotional release, and final-image function.
+- Build the reviewed semantic-unit plan directly into the HyperFrames composition. One video element normally spans one semantic unit; never expand it back into cue-sized elements merely because several captions occur inside it.
 
-### 6. Apply 障眼法 grammar
+### 6. Apply and freeze 障眼法 grammar
 
 - Structure the cut as emotional hook → red central question → setup → claim → proof → return to character → slower reinterpretation → red closing thesis.
 - Use story/game footage as the default layer and evidence cards only where they prove a claim.
@@ -144,8 +163,25 @@ Read [references/ocr-caption-visual-workflow.md](references/ocr-caption-visual-w
 - Preserve the target project's native resolution and existing 60 fps cadence when applicable.
 - Force an opening audit: first frame non-black, recognizable motion/face/stakes inside three seconds, thesis or evidence inside the early hook, and no logo/menu lead-in.
 - Force an ending audit: coherent emotional callback, slower visual cadence, intentional non-black final frame, and a last image that visually completes the spoken farewell.
+- Encode opening, representative-middle, and ending intentions in the composition before the technical stress render. Treat their later 720p approval as the freeze point for structure, UID treatment, geometry, typography, motion, and pace.
 
-### 7. Select and prepare BGM
+### 7. Render generated video assets with HyperFrames
+
+- Run and record `hyperframes doctor --json`, `hyperframes --version`, FFmpeg version, available encoders, free bytes, and cache location before the first render in a run.
+- Author a stable HyperFrames project under `RUN_DIR/hyperframes/project/`. Bind its composition hash and normalized integer-frame render plan to the timing contract and the current visual-review lineage.
+- Run `hyperframes lint` and `hyperframes check` with transition samples before rendering. A successful process exit without the required JSON evidence is not a passed gate.
+- Plan chunks on semantic-unit boundaries, normally 30–60 seconds, rather than caption boundaries. Shorten them only for measured memory or disk constraints. Keep the cue clock as metadata; it must not multiply compositions or media activations.
+- Render a 30–60 second representative stress composition through the actual HyperFrames capture and target encoder path before any full master. It must cover every declared normalized proxy-profile class and production asset class, the shortest planned units, hard cuts, transitions, source heads, and cards/overlays when used; it does not need one sample from every source file. Check every head, tail, activation frame, and seam; lock the passing source-poster/activation policy into the composition.
+- When headroom allows, benchmark one versus two workers on that same stress sample and select the faster passing configuration. Preserve one worker, low-memory mode, and streaming capture as the safe low-disk fallback.
+- After the stress render passes, render 720p previews of the opening, one representative middle passage, and the ending. Record the preview hashes and explicit approval for opening/ending structure, UID treatment, geometry, typography, motion, and pace. Do not start the full master while any of these judgments remains open.
+- Use `hyperframes_chunked_videotoolbox_v1` on macOS when projected free space after rendering remains above the contract reserve. Request `--gpu`; record the actual selected encoder rather than assuming VideoToolbox was used.
+- Use `hyperframes_low_disk_stream_v1` when the standard path would cross the reserve. Disable the persistent frame cache, use one worker and low-memory mode, and never choose PNG-sequence output. If the HyperFrames streaming path still exceeds the reserve, stop and free or relocate recoverable cache data; do not replace the authored render with FFmpeg segments.
+- Keep frame allocation integral: each segment owns an exact start frame and frame count; the sum must equal `timing_contract.target_frame_count`. Do not use rounded decimal durations as the authority.
+- Keep Jianying replacement masters video-only, with no burned captions and no audio stream. Only an explicitly authorized standalone preview or final export may include HyperFrames-rendered captions and the verified audio mix.
+- After every preflight gate passes, authorize one planned full-resolution master render. Write `hyperframes/render_manifest.json`, probe and hash the output, then run one full frame-count, duration, decode, black-gap, transition-seam, color, and audio-policy QA before registering it as generated.
+- Preserve that QA as checker-versioned, hash-bound evidence and reuse it while all bound inputs remain current. For a later localized defect or user change, patch only declared semantic-unit/chunk IDs. Re-review changed units, render only affected chunks, compare unchanged chunk file hashes against the accepted manifest, decode changed chunks, inspect adjacent seams, assemble the current master, and run one final full-output decode/black-gap/seam QA. Never re-run the accepted base's full decode or whole-base/whole-output decoded-frame hashing merely to prove unchanged chunks.
+
+### 8. Select and prepare BGM
 
 - Search only the configured BGM root recursively. Base selection on the manuscript's rhetorical chapters and auditioned local candidates.
 - Never treat source-video audio, a downloaded file, a generated tone, or music copied from another directory as eligible BGM.
@@ -154,7 +190,7 @@ Read [references/ocr-caption-visual-workflow.md](references/ocr-caption-visual-w
 - Add the required `bgm_sources_within_music` check using `bgm_sources_within_root` and run it before importing any derivative BGM into Jianying.
 - If the provenance check fails, remove the invalid derivative and rebuild from an eligible Music-folder source. Do not import or apply the failed asset.
 
-### 8. Run acceptance polish
+### 9. Run acceptance polish
 
 - Convert every issue into `priority, category, timeline_range, planned_edit, acceptance_test, status` before editing.
 - Apply the learned refinement patterns in [references/refinement-patterns.md](references/refinement-patterns.md) when the same risks occur.
@@ -168,9 +204,15 @@ Do not advance past a failed gate:
 - **Recording analysis:** source probe and sampling coverage pass; every input frame has a Vision result or explicit error; the mission-flow covers the full recording with evidence-linked rows; Claude handoffs exist; missing audio-only dialogue and uncertain OCR are unresolved rather than invented.
 - **Narration:** every numbered WAV exists, opens, has nonzero duration, and covers its segment in order.
 - **Captions:** coverage reaches the narration end; ordinary style is consistent; adjacent exact duplicates equal zero; an SRT backup exists when replacement risk exists.
-- **Match plan:** every spoken unit has a selected source or intentional card; its selected candidate exists in the retained pool; weak rows have actual expansion evidence; reuse, overlap, reverse-order, UI/black, and duration audits pass.
-- **Match plan evidence:** every selected row was visually reviewed; every risk row has A/B/C evidence; named-character rows have an explicit identity verdict; opening and ending reviews pass; all evidence and repairs bind to the current generation hashes with zero unresolved rows.
+- **Source proxies:** every indexed or rendered source resolves through a source-SHA/profile-hash proxy manifest; media probes prove the normalized codec, CFR, pixel format, color, GOP, and source-time mapping; proxy, index, browser-cache, and render scratch paths resolve outside iCloud; no stale proxy is used.
+- **Semantic-unit plan:** every cue maps exactly once to a contiguous semantic visual unit; every cut has a reason; no cue boundary creates an undeclared seek, activation, chunk, or video element; normal units are usually 4–8 seconds and all exceptions are justified.
+- **Match plan:** every semantic visual unit has a selected source or intentional card; its selected candidate exists in the retained pool; ordinary units retain 8–12 viable candidates; derived risk units retain no more than 32 and expose at least three distinct A/B/C choices; insufficient pools remain unresolved with expansion evidence; reuse, overlap, reverse-order, UI/black, and duration audits pass.
+- **Match plan evidence:** every selected semantic unit was visually reviewed; every risk unit has A/B/C head/middle/tail evidence; named-character units have an explicit identity verdict; opening and ending reviews pass; all evidence and repairs bind to the current proxy/index/plan hashes with zero unresolved units.
+- **HyperFrames stress:** one real 30–60 second stress render covers every declared source profile class and the risky transition/activation cases; encoder, worker count, source-poster policy, head/tail frames, and seams are measured and pass before a full master is authorized.
+- **Aesthetic preview:** hashed 720p opening, representative-middle, and ending previews exist after the stress gate; explicit user or accepted-reference approval freezes structure, UID treatment, geometry, typography, motion, and pace.
 - **Picture:** resolution, frame rate, frame count, and duration are plausible; strict black-gap detection passes; the render has no audio stream; live replacement filename is visible.
+- **HyperFrames master:** required environment evidence, composition and semantic-unit render-plan hashes, selected profile and actual encoder, lint/check results, disk preflight, preview approvals, output hash, and media probe are present; exactly one planned full-resolution master follows the preflight gates; frame count equals the timing contract; low-disk renders contain no full-frame sequence; replacement masters remain video-only.
+- **Incremental repair:** every changed semantic unit and chunk is declared and re-reviewed; unchanged chunks match stored file SHA-256 values; changed chunks decode; both adjacent boundaries pass; the assembled current output passes one full decode/black-gap/seam QA. The accepted base reuses its current hash-bound QA and is not fully decoded again; no redundant whole-base decoded-frame hash pass is accepted as the incremental proof.
 - **Audio provenance:** every BGM manifest source exists, is absolute, resolves inside the configured BGM root, and passes `bgm_sources_within_music`. No external, generated, downloaded, or footage-extracted source is allowed.
 - **Audio mix:** narration remains foreground; BGM settings are verified on the intended track; no final-LUFS claim without export measurement.
 - **Ending:** final frame is intentional and non-black; any requested breathing room is present.
@@ -190,6 +232,8 @@ Return a concise completion summary with:
 - completed recording-analysis range and links to the Claude handoff when that module was active;
 - completed phase range and any intentionally skipped phase;
 - narration, caption, visual-match, BGM, and ending QA facts;
+- source-proxy profile and cache location, semantic-unit/cue counts, ordinary and expanded candidate-pool facts, and current lineage hashes;
+- HyperFrames version, stress-render range/result, approved 720p preview hashes, final render profile, actual encoder and worker count, peak/free-space facts, composition/render hashes, planned full-master count, patch verification mode, and whether a low-disk fallback was used;
 - unresolved human-audition or rights questions;
 - whether a final export was authorized and performed;
 - harness lifecycle, final close result, and any consumed failure budget;
