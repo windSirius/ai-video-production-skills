@@ -1,4 +1,4 @@
 interface:
-  display_name: "剪映批量逐句配画"
-  short_description: "全片索引候选、分层审片、增量修复并重建等长画面轨"
-  default_prompt: "使用 $jianying-sentence-visual-matching，冻结字幕后建立全片索引和候选池，逐句生成批量首稿，完成全量入选画面与风险候选复核，再以可追溯修复生成等长画面轨。"
+  display_name: "A轨逐句配画"
+  short_description: "全片索引候选、完整画幅UID审片、CG钩子与低内存A轨母版"
+  default_prompt: "使用 $jianying-sentence-visual-matching，冻结最终字幕，建立全片候选和审核证据，以完整画幅和 UID 制作含前10秒CG钩子的A轨母版。"

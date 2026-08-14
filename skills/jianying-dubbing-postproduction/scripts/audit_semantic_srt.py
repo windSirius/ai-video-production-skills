@@ -64,6 +64,25 @@ def normalized_text(captions: list[Caption], ignored_chars: str, lexical: bool) 
     return "".join(output)
 
 
+def normalized_plain_text(text: str, ignored_chars: str, lexical: bool) -> str:
+    return normalized_text([Caption("00:00:00,000", "00:00:00,000", text)], ignored_chars, lexical)
+
+
+def canonical_document_text(text: str) -> str:
+    """Remove Markdown document furniture while preserving spoken paragraphs."""
+    lines = []
+    in_fence = False
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence or not stripped or stripped.startswith(("#", "---", "<!--")):
+            continue
+        lines.append(stripped)
+    return "\n".join(lines)
+
+
 def visible_chars(text: str) -> int:
     return sum(not char.isspace() for char in text)
 
@@ -86,6 +105,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("raw_srt", type=Path, help="Unedited Manuscript Match SRT")
     parser.add_argument("final_srt", type=Path, help="Semantically edited final SRT")
+    parser.add_argument("--canonical-source", type=Path, help="Frozen canonical narration text")
+    parser.add_argument("--audio-duration-seconds", type=float, help="Current canonical audio-master duration")
+    parser.add_argument("--end-tolerance-ms", type=int, default=100)
     parser.add_argument("--ignore-chars", default="。；：", help="Style punctuation ignored in coverage comparison")
     parser.add_argument(
         "--coverage-mode",
@@ -117,6 +139,15 @@ def main() -> int:
     lexical = args.coverage_mode == "lexical"
     raw_text = normalized_text(raw, args.ignore_chars, lexical)
     final_text = normalized_text(final, args.ignore_chars, lexical)
+    canonical_text = None
+    canonical_mismatch = False
+    if args.canonical_source:
+        canonical_text = normalized_plain_text(
+            canonical_document_text(args.canonical_source.read_text(encoding="utf-8-sig")),
+            args.ignore_chars,
+            lexical,
+        )
+        canonical_mismatch = canonical_text != final_text
 
     coverage_differences = []
     if raw_text != final_text:
@@ -185,14 +216,24 @@ def main() -> int:
         for opening, closing in QUOTE_PAIRS
         if joined.count(opening) != joined.count(closing)
     ]
+    audio_tail_delta_ms = None
+    audio_tail_mismatch = False
+    if args.audio_duration_seconds is not None:
+        if args.audio_duration_seconds < 0:
+            parser.error("--audio-duration-seconds must be nonnegative")
+        final_end_ms = to_ms(final[-1].end) if final else 0
+        audio_tail_delta_ms = final_end_ms - round(args.audio_duration_seconds * 1000)
+        audio_tail_mismatch = abs(audio_tail_delta_ms) > args.end_tolerance_ms
 
     failures = {
         "coverage_mismatch": raw_text != final_text,
+        "canonical_coverage_mismatch": canonical_mismatch,
         "adjacent_duplicate_entries": duplicates,
         "punctuation_only_entries": punctuation_only,
         "forbidden_terminal_punctuation_entries": forbidden_terminal_punctuation,
         "invalid_time_order_entries": invalid_order,
         "quote_imbalances": quote_imbalances,
+        "audio_tail_mismatch": audio_tail_mismatch,
     }
     passed = not any(bool(value) for value in failures.values())
     report = {
@@ -203,6 +244,11 @@ def main() -> int:
         "entries_final": len(final),
         "normalized_characters_raw": len(raw_text),
         "normalized_characters_final": len(final_text),
+        "canonical_source": str(args.canonical_source) if args.canonical_source else None,
+        "normalized_characters_canonical": len(canonical_text) if canonical_text is not None else None,
+        "audio_duration_seconds": args.audio_duration_seconds,
+        "audio_tail_delta_ms": audio_tail_delta_ms,
+        "end_tolerance_ms": args.end_tolerance_ms,
         "coverage_mode": args.coverage_mode,
         "terminal_punctuation_policy": {
             "enabled": not args.allow_forbidden_terminal_punctuation,

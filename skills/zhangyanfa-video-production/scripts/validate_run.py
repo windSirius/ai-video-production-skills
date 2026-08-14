@@ -93,18 +93,29 @@ def validate_contract(contract: dict, plan: dict, errors: list[str]) -> None:
     for check in checks:
         if check.get("type") not in SUPPORTED_TYPES:
             errors.append(f"unsupported check type for {check.get('id')}: {check.get('type')}")
-    bgm_check = next((check for check in checks if check.get("id") == "bgm_sources_within_music"), None)
+    bgm_policy = contract.get("bgm_policy", {})
+    bgm_mode = bgm_policy.get("source_mode", "local_library")
+    bgm_check = next((check for check in checks if check.get("id") == "bgm_provenance_current"), None)
     if not bgm_check:
-        errors.append("verification plan requires bgm_sources_within_music")
-    else:
+        errors.append("verification plan requires bgm_provenance_current")
+    elif bgm_mode == "local_library":
         if bgm_check.get("type") != "bgm_sources_within_root":
-            errors.append("bgm_sources_within_music must use bgm_sources_within_root")
+            errors.append("local_library BGM must use bgm_sources_within_root")
         if bgm_check.get("path") != "audio/bgm_manifest.json":
-            errors.append("bgm_sources_within_music must inspect audio/bgm_manifest.json")
+            errors.append("BGM provenance check must inspect audio/bgm_manifest.json")
         if bgm_check.get("source_root") != MUSIC_SOURCE_ROOT:
-            errors.append(f"bgm_sources_within_music source_root must be {MUSIC_SOURCE_ROOT}")
+            errors.append(f"local_library source_root must be {MUSIC_SOURCE_ROOT}")
         if bgm_check.get("required") is not True:
-            errors.append("bgm_sources_within_music must be required")
+            errors.append("BGM provenance check must be required")
+    elif bgm_mode == "generated_score":
+        if bgm_check.get("type") != "generated_bgm_manifest_integrity":
+            errors.append("generated_score BGM must use generated_bgm_manifest_integrity")
+        if bgm_check.get("path") != "audio/bgm_manifest.json":
+            errors.append("BGM provenance check must inspect audio/bgm_manifest.json")
+        if bgm_check.get("required") is not True:
+            errors.append("BGM provenance check must be required")
+    else:
+        errors.append(f"unsupported bgm_policy.source_mode={bgm_mode!r}")
     criterion_check_ids = []
     for criterion in criteria:
         if not criterion.get("claim"):
@@ -120,13 +131,18 @@ def validate_contract(contract: dict, plan: dict, errors: list[str]) -> None:
         errors.append("all unit_limits must be positive integers")
     if not contract.get("stop_conditions"):
         errors.append("request contract requires stop_conditions")
-    bgm_policy = contract.get("bgm_policy", {})
-    if bgm_policy.get("source_root") != MUSIC_SOURCE_ROOT:
-        errors.append(f"request contract bgm_policy.source_root must be {MUSIC_SOURCE_ROOT}")
     if bgm_policy.get("allow_external_sources") is not False:
         errors.append("request contract must forbid external BGM sources")
-    if bgm_policy.get("allow_generated_sources") is not False:
-        errors.append("request contract must forbid generated BGM sources")
+    if bgm_mode == "local_library":
+        if bgm_policy.get("source_root") != MUSIC_SOURCE_ROOT:
+            errors.append(f"local_library bgm_policy.source_root must be {MUSIC_SOURCE_ROOT}")
+        if bgm_policy.get("allow_generated_sources") is not False:
+            errors.append("local_library mode must forbid generated BGM sources")
+    elif bgm_mode == "generated_score":
+        if bgm_policy.get("source_root") not in (None, ""):
+            errors.append("generated_score bgm_policy.source_root must be null")
+        if bgm_policy.get("allow_generated_sources") is not True:
+            errors.append("generated_score mode must allow generated BGM sources")
     video_profile = contract.get("workflow_profiles", {}).get("video_rendering")
     if video_profile == VIDEO_RENDERING_V2_PROFILE:
         source_proxy = contract.get("render_policy", {}).get("source_proxy", {})

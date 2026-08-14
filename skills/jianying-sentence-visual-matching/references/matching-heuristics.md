@@ -63,6 +63,16 @@ Use the total to compare candidates, but allow a lower total only with a written
 - Use faster cuts for hooks, lists, comparisons, or explicit references to another work.
 - Break a long static dialogue section every 4-6 seconds with a motivated angle, crop, reaction, or card.
 - A crop variant counts as visual change only when the subject or emotional emphasis changes visibly.
+- In Alan's house workflow, the first 10 seconds are a purpose-built CG/PV hook with about one motivated cut per second. This exception does not justify fast-cutting the entire essay.
+
+## Full-frame and UID contract
+
+- Preserve the original complete 16:9 frame and visible UID for all gameplay recordings.
+- Mark official CG/PV or still assets without a source UID as `uid_visible=not_applicable`; never use that value to excuse a cropped gameplay recording.
+- If a source aspect differs, scale it down proportionally and pad; do not crop or stretch.
+- Never alternate between UID-visible full frames and UID-hidden crops in one master.
+- Reject archive menus, dialogue-choice menus, reasoning pages, capture overlays, unlock notifications, task HUD and black/white transition frames unless the row explicitly calls for that interface as evidence.
+- Verify identity from visible character appearance, not from a name in subtitles or OCR.
 
 ## Continuity
 
@@ -84,7 +94,7 @@ Use the total to compare candidates, but allow a lower total only with a written
 Use at least:
 
 ```text
-line_id start end duration text subject action object_location emotion narrative_job candidate_a candidate_a_score candidate_b candidate_b_score candidate_c candidate_c_score source_file source_in source_out treatment match_reason confidence retry_round reuse_group qa_status
+line_id start end duration text subject action object_location emotion narrative_job candidate_a candidate_a_score candidate_b candidate_b_score candidate_c candidate_c_score selected_candidate_id source_id source_file source_in source_out treatment crop_mode uid_visible identity_review risk_flags match_reason confidence retry_round reuse_group qa_status
 ```
 
 Keep `match_reason` short but concrete, such as `letter close-up matches remembered details`, not `looks good`.

@@ -221,6 +221,7 @@ class MediaChoice:
     segments: tuple[tuple[float, float], ...]
     kind: str
     descriptor: str
+    crop_mode: str = ""
 
     @property
     def source_in(self) -> float:
@@ -283,6 +284,7 @@ def selected_choice(row: dict[str, str]) -> MediaChoice:
         segments=((source_in, source_out),),
         kind=kind,
         descriptor="selected match-sheet range",
+        crop_mode=row.get("crop_mode", "").strip().casefold(),
     )
 
 
@@ -364,6 +366,18 @@ def render_sample(
         with Image.open(choice.source_file) as raw:
             raw.convert("RGB").save(temporary, quality=92)
     else:
+        crop_mode = choice.crop_mode
+        if crop_mode in {"", "none", "full_frame"}:
+            video_filter = "scale=960:-2"
+        elif crop_mode == "top_ui_8pct":
+            video_filter = (
+                "crop=iw:floor(ih*0.92/2)*2:0:ih*0.08,"
+                "scale=960:-2"
+            )
+        else:
+            raise RuntimeError(
+                f"{sample_name}: unsupported crop_mode {crop_mode!r}"
+            )
         completed = subprocess.run(
             [
                 ffmpeg,
@@ -377,7 +391,7 @@ def render_sample(
                 "-frames:v",
                 "1",
                 "-vf",
-                "scale=960:-2",
+                video_filter,
                 "-q:v",
                 "2",
                 "-y",
@@ -456,6 +470,7 @@ def make_selected_sheets(
     evidence: dict[tuple[int, str], list[dict[str, Any]]],
     output_dir: Path,
 ) -> list[dict[str, Any]]:
+    output_dir.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = []
     title_font = load_font(19)
     label_font = load_font(15)
@@ -508,6 +523,7 @@ def make_risk_sheets(
     evidence: dict[tuple[int, str], list[dict[str, Any]]],
     output_dir: Path,
 ) -> list[dict[str, Any]]:
+    output_dir.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = []
     title_font = load_font(20)
     label_font = load_font(15)
@@ -850,6 +866,8 @@ def main() -> int:
         "identity_verified": {},
         "opening_review": {"status": "PENDING"},
         "ending_review": {"status": "PENDING"},
+        "full_frame_review": {"status": "PENDING"},
+        "uid_review": {"status": "PENDING"},
         "unresolved_ids": sorted(
             {
                 int(error["line_id"])
@@ -866,7 +884,7 @@ def main() -> int:
             "Set every range_reviews[].status to PASS after reviewing that selected sheet.",
             "Set every selected_evidence_manifest.tsv visual_review cell to approved_manual, then refresh selected_evidence_manifest_sha256.",
             "After changing the evidence TSV, also refresh the matching files[] record SHA-256 and size.",
-            "identity_verified, opening_review, ending_review, and unresolved_ids must be completed before render-ready audit.",
+            "identity_verified, opening_review, ending_review, full_frame_review, uid_review, and unresolved_ids must be completed before house-profile render-ready audit.",
         ],
     }
     atomic_json(manifest_path, manifest)

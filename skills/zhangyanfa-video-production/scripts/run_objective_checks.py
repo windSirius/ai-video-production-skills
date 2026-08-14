@@ -7,7 +7,6 @@ import argparse
 import csv
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -16,11 +15,6 @@ from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
-
-
-DEFAULT_MUSIC_SOURCE_ROOT = str(
-    Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
-)
 
 
 SUPPORTED_TYPES = {
@@ -36,6 +30,7 @@ SUPPORTED_TYPES = {
     "srt_no_adjacent_duplicates",
     "srt_integrity",
     "bgm_sources_within_root",
+    "generated_bgm_manifest_integrity",
     "media_probe",
     "media_frame_contract",
     "live_state_assert",
@@ -6256,7 +6251,12 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         sections_field = check.get("sections_field", "sections")
         source_field = check.get("source_field", "source")
         sections = dotted_value(data, sections_field)
-        source_root = Path(check.get("source_root", DEFAULT_MUSIC_SOURCE_ROOT)).expanduser().resolve()
+        source_root_value = check.get("source_root")
+        source_root = (
+            Path(source_root_value).expanduser()
+            if source_root_value
+            else Path.home() / "Music"
+        ).resolve()
         if not source_root.is_dir():
             return False, f"source root is not a directory: {source_root}", {"source_root": str(source_root)}
         if not isinstance(sections, list) or not sections:
@@ -6293,13 +6293,96 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         }
         return not failures, f"sections={len(sections)}, failures={failures}", metrics
 
+    if check_type == "generated_bgm_manifest_integrity":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        failures = []
+        if data.get("source_mode") != "generated_score":
+            failures.append("bgm manifest source_mode must be generated_score")
+        generation_value = data.get("generation_manifest") or check.get("generation_manifest_path")
+        if not isinstance(generation_value, str) or not generation_value.strip():
+            failures.append("missing generation_manifest path")
+            generation_path = None
+            generation_data = {}
+        else:
+            generation_path = resolve_path(root, generation_value)
+            if not generation_path.is_file():
+                failures.append(f"generation manifest missing: {generation_path}")
+                generation_data = {}
+            else:
+                generation_data = json.loads(generation_path.read_text(encoding="utf-8"))
+        if generation_data.get("status") != "pass":
+            failures.append("generation manifest status must be pass")
+        generations = generation_data.get("generations")
+        if not isinstance(generations, list) or not generations:
+            failures.append("generation manifest generations must be a nonempty list")
+            generations = []
+
+        generated_sources: dict[str, dict[str, Any]] = {}
+        for index, record in enumerate(generations, start=1):
+            if not isinstance(record, dict):
+                failures.append(f"generation {index}: record must be an object")
+                continue
+            for field in ("service", "model", "source", "sha256"):
+                if not str(record.get(field, "")).strip():
+                    failures.append(f"generation {index}: missing {field}")
+            if not str(record.get("prompt", "")).strip() and not str(record.get("prompt_sha256", "")).strip():
+                failures.append(f"generation {index}: missing prompt or prompt_sha256")
+            try:
+                if float(record.get("duration", 0)) <= 0:
+                    failures.append(f"generation {index}: duration must be positive")
+            except (TypeError, ValueError):
+                failures.append(f"generation {index}: invalid duration")
+            source_value = record.get("source")
+            if not isinstance(source_value, str) or not source_value.strip():
+                continue
+            source_path = Path(source_value).expanduser()
+            if not source_path.is_absolute():
+                failures.append(f"generation {index}: source must be absolute")
+                continue
+            resolved = source_path.resolve()
+            if not resolved.is_file():
+                failures.append(f"generation {index}: source is not a file: {resolved}")
+                continue
+            digest = file_sha256(resolved)
+            if digest != record.get("sha256"):
+                failures.append(f"generation {index}: sha256 mismatch: {resolved}")
+                continue
+            generated_sources[str(resolved)] = record
+
+        sections = data.get("sections")
+        if not isinstance(sections, list) or not sections:
+            failures.append("bgm manifest sections must be a nonempty list")
+            sections = []
+        accepted_sources = []
+        for index, section in enumerate(sections, start=1):
+            raw_source = section.get("source") if isinstance(section, dict) else None
+            if not isinstance(raw_source, str) or not raw_source.strip():
+                failures.append(f"section {index}: missing source")
+                continue
+            resolved = str(Path(raw_source).expanduser().resolve())
+            if resolved not in generated_sources:
+                failures.append(f"section {index}: source is not bound to generation manifest: {resolved}")
+                continue
+            accepted_sources.append(resolved)
+
+        metrics = {
+            "source_mode": data.get("source_mode"),
+            "generation_manifest": str(generation_path) if generation_path else None,
+            "generation_count": len(generations),
+            "sections": len(sections),
+            "accepted_source_count": len(accepted_sources),
+            "accepted_sources": accepted_sources,
+            "failures": failures,
+        }
+        return not failures, f"generations={len(generations)}, sections={len(sections)}, failures={failures}", metrics
+
     if check_type == "image_evidence_set":
         matches = sorted(path.glob(check.get("pattern", "*.png")))
         minimum = int(check.get("min_count", 3))
         failures = []
         if len(matches) < minimum:
             failures.append(f"count={len(matches)}, expected>={minimum}")
-        digests = [hashlib.sha256(candidate.read_bytes()).hexdigest() for candidate in matches]
+        digests = [file_sha256(candidate) for candidate in matches]
         if len(digests) != len(set(digests)):
             failures.append("evidence images are not distinct")
         black = []

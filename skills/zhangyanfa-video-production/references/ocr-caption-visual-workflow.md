@@ -101,7 +101,7 @@ Treat both intervals as sequence-level gates, not isolated thumbnails. A later p
 
 ## 9. Replace safely in Jianying
 
-1. Create a stable regular-file path for the approved render. Prefer a hardlink under `AI_VIDEO_MEDIA_ROOT`, defaulting to `$HOME/Movies/JianyingMedia`; never rely on a symlink or `/tmp` for the saved draft.
+1. Create a stable regular-file path for the approved render. Prefer a hardlink under `${AI_VIDEO_MEDIA_ROOT:-$HOME/Movies/JianyingMedia}/`; never rely on a symlink or `/tmp` for the saved draft.
 2. Import and preview the exact video. Confirm it is recognized as MPEG-4 video with the expected duration.
 3. Right-click the existing main picture clip and choose `替换片段`.
 4. Confirm the replacement preview is video-to-video, then apply it.

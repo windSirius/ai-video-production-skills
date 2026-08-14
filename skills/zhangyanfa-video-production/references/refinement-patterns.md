@@ -20,7 +20,7 @@ Apply these patterns only when the named risk exists. They are defaults, not man
 
 ## BGM lacks rhetorical breathing
 
-- Start only from already verified sources in the configured BGM root (`AI_VIDEO_MUSIC_ROOT`, default `$HOME/Music`); do not replace a weak section with footage audio, a download, or generated music.
+- Keep the project's frozen source mode. For `local_library`, start only from verified configured-root sources. For `generated_score`, revise the chapter prompt or regenerate only the weak chapter; do not silently switch provenance modes.
 - Start near the house baseline of `-20 dB` in Jianying with loudness normalization enabled.
 - Dip the music under a reversal or decisive thesis rather than changing tracks for one sentence.
 - Permit a restrained 1–1.5 dB lift for a recovered signal, reply, reunion, or hopeful turn.
@@ -48,6 +48,32 @@ Apply these patterns only when the named risk exists. They are defaults, not man
 - Study only the first and last 20–30 seconds of the reference video at one-second intervals.
 - Transfer hook density, evidence timing, emotional release, and final-frame function rather than copying its shot sequence.
 - Require a non-black active opening, recognizable stakes within three seconds, and an intentional non-black final image that completes the farewell.
+
+## Evidence page looks like a one-frame flash
+
+- Inspect the exact cut at native fps before extending the page.
+- Check whether outgoing and incoming opacity both reach zero at the cut. If so, replace the page-to-page fade with a hard cut or overlap; do not lengthen an already readable page to hide the defect.
+- Re-render only affected chunks, invalidate cache by HTML/asset hash, and inspect cut `-6…+6` frames.
+
+## Highlight rectangle is too large or misplaced
+
+- Locate the exact target words in source-image pixel coordinates.
+- Add contain/pad offsets and any scale to convert source coordinates into canvas coordinates.
+- Scope the CSS override to the exact card ID. Never change a shared class when only one page is wrong.
+- Render one midpoint frame and confirm the box isolates only the intended phrase before rerendering the chunk.
+
+## Cover character or official model is distorted
+
+- Stop using the generated character layer. Return to the frozen official/user source.
+- Generate only a background or light treatment if needed, then composite the unchanged character deterministically.
+- Recheck face, eyes, hands, clothing structure and signature prop against the source at full size and thumbnail size.
+
+## Client deadline requires a fast patch
+
+- Translate feedback into the smallest exact range and asset IDs.
+- Patch only those IDs and affected chunks. Reuse unchanged hashes; preserve the old accepted master.
+- Follow “宁少做，不多做”: remove a questionable label, box, insert or effect when removal solves the note more safely than redesign.
+- Re-run local point QA plus the global frame/decode contract before delivery.
 
 ## Evidence and reporting
 

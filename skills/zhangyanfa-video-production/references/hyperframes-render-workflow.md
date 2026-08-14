@@ -34,6 +34,13 @@ This source gate prevents sparse-keyframe, mixed-frame-rate, and decoder-activat
 - Use the HyperFrames virtual frame clock for animation. Do not drive render-visible motion from wall time, random values, network state, or an unpinned browser session.
 - Distinguish `jianying_picture_master`, `standalone_preview`, and `authorized_final_export` before authoring caption or audio layers.
 
+### One boundary authority
+
+- Derive every start and end from integer frames. Quantize each shared boundary once, then compute `duration = quantized_end - quantized_start`.
+- Never serialize `start_frame / fps` and `frame_count / fps` independently with decimal rounding. At 60 fps, a one-nanosecond gap can place a real sampled frame on the empty composition background.
+- Run `scripts/audit_hyperframes_boundaries.py PROJECT/index.html --fps FPS` after building the canonical project and every derived chunk. Require zero positive gaps on a continuous track; declare intentional overlaps explicitly.
+- When clips share a boundary, prefer the incoming clip on the boundary frame. Do not extend the outgoing clip by one frame merely to hide the empty sample.
+
 ## 4. Validate before rendering
 
 1. Run `hyperframes lint PROJECT --json`.
@@ -89,6 +96,14 @@ Start one full-length render at the contract target resolution, normally 1080p, 
 - Run this complete probe/decode/black/seam pass once on the candidate production master. Store checker-versioned evidence and reuse it after fingerprint revalidation instead of repeating full-output checks during unchanged administrative, prerequisite, or Harness steps.
 - Register the output as `generated` only after all checks pass. A successful file write alone is not acceptance.
 - Keep the current composition, plan, manifest, output, and required repair segments recoverable until user acceptance. Move superseded caches and renders to a dated Trash folder only after they are no longer referenced.
+- Generate a boundary contact sheet containing `-1/0/+1` around every semantic-unit and chunk boundary. Review every page at original detail, then continuously play the actual first 10 seconds, last 10 seconds, and any user-reported range. A compressed ten-second overview is not a substitute for those intervals.
+
+### Auxiliary B/C-track branch
+
+- Bind B/C HTML, every still/silhouette/icon, CSS and build script to the chunk input fingerprint.
+- Keep evidence pages fully visible long enough to read. Adjacent pages normally hard-cut; a transition may fade only when their opacity curves overlap or a persistent non-empty background remains.
+- Produce `alpha_master` only when downstream alpha handling is verified. If transparency becomes black in the editor, retain the alpha source project and render a separate `green_screen_master` with a uniform pure-green composition background.
+- Validate green background continuity and sample every page transition. Never replace only one silhouette with a green-backed rectangle.
 
 ## 10. Patch and verify incrementally
 
@@ -99,3 +114,7 @@ When later feedback changes a limited range:
 3. Prove unchanged content by matching existing chunk hashes and ordered lineage. Do not fully decode or frame-hash the entire accepted base again, and do not compare every base/output frame.
 4. Assemble one new master from the verified unchanged and changed chunks, then prove ordered frame coverage, target frame count, media metadata, and audio policy. Fully decode the new master once if it becomes the new accepted production master; do not also repeat a full decode of the already accepted base.
 5. Preserve the prior master and delta manifest until the patched master passes and the user accepts it.
+
+Cache validity must bind the canonical HTML, referenced assets, generator/build scripts, render plan and tool version. A cache check that compares only codec, dimensions, fps, frame count or alpha mode is insufficient; force the affected chunks stale before rerendering.
+
+Assemble chunks in render-plan order and write a concat receipt binding the plan SHA, each chunk receipt/output SHA, stream signature, final output SHA, exact frame count and full-decode result. Recheck all bound files immediately before atomic promotion so a concurrent change cannot produce a false receipt.

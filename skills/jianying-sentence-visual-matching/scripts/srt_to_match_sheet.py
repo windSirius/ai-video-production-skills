@@ -54,7 +54,9 @@ def main() -> None:
         "object_location", "emotion", "narrative_job", "candidate_a",
         "candidate_a_score", "candidate_b", "candidate_b_score", "candidate_c",
         "candidate_c_score", "source_file", "source_in", "source_out", "treatment",
-        "match_reason", "confidence", "retry_round", "reuse_group", "qa_status",
+        "selected_candidate_id", "source_id", "match_reason", "confidence",
+        "retry_round", "reuse_group", "crop_mode", "uid_visible",
+        "identity_review", "risk_flags", "qa_status",
     ]
     with args.output_tsv.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
@@ -68,6 +70,8 @@ def main() -> None:
                     "duration": f"{entry['end'] - entry['start']:.3f}",
                     "text": entry["text"],
                     "retry_round": 0,
+                    "crop_mode": "full_frame",
+                    "uid_visible": "pending",
                     "qa_status": "unmatched",
                 }
             )

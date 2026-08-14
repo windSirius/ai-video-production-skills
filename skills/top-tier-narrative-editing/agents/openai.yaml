@@ -1,0 +1,4 @@
+interface:
+  display_name: "顶尖叙事剪辑学习"
+  short_description: "用顶尖标杆、A/B实验、甲方结果和生产硬门禁迭代叙事剪辑"
+  default_prompt: "使用 $top-tier-narrative-editing，对这期视频做证据分级的标杆分析与A/B实验，同时检查身份、素材审核和渲染可靠性硬门禁。"
