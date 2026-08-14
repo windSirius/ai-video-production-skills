@@ -43,7 +43,7 @@ TIME_RE = re.compile(
     r"\s*-->\s*"
     r"(?P<eh>\d+):(?P<em>\d{2}):(?P<es>\d{2})[,.](?P<ems>\d{3})"
 )
-TRUE_VALUES = {"1", "true", "yes", "y", "是", "required"}
+TRUE_VALUES = {"1", "true", "yes", "y", "是", "required", "verified", "pass", "visible"}
 
 
 def sha256_file(path: Path) -> str:
@@ -210,6 +210,7 @@ def validate_review_manifest(
     stage: str,
     errors: list[str],
     warnings: list[str],
+    require_full_frame_uid: bool = False,
 ) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("match_sheet_sha256") != match_sha:
@@ -298,6 +299,11 @@ def validate_review_manifest(
             section = data.get(label)
             if not isinstance(section, dict) or section.get("status") != "PASS":
                 errors.append(f"review manifest {label}.status must be PASS")
+        if require_full_frame_uid:
+            for label in ("full_frame_review", "uid_review"):
+                section = data.get(label)
+                if not isinstance(section, dict) or section.get("status") != "PASS":
+                    errors.append(f"review manifest {label}.status must be PASS")
     else:
         for label in ("opening_review", "ending_review"):
             section = data.get(label)
@@ -424,6 +430,11 @@ def main() -> int:
     parser.add_argument("--candidate-pool", type=Path)
     parser.add_argument("--source-manifest", type=Path)
     parser.add_argument("--selected-evidence-manifest", type=Path)
+    parser.add_argument(
+        "--require-full-frame-uid",
+        action="store_true",
+        help="Require house-profile contain/full-frame geometry and explicit UID review",
+    )
     parser.add_argument("--output-json", type=Path)
     args = parser.parse_args()
 
@@ -580,6 +591,14 @@ def main() -> int:
             source = Path(row.get("source_file", "")).expanduser()
             if not source.is_file():
                 errors.append(f"line {line_id}: source file missing: {source}")
+            if args.require_full_frame_uid:
+                crop_mode = row.get("crop_mode", "").strip().casefold()
+                if crop_mode not in {"", "none", "full_frame", "contain", "contain_pad"}:
+                    errors.append(f"line {line_id}: disallowed crop_mode={crop_mode!r}")
+                uid_value = row.get("uid_visible") or row.get("uid_review") or ""
+                uid_status = uid_value.strip().casefold()
+                if not is_true(uid_value) and uid_status not in {"not_applicable", "n/a", "na"}:
+                    errors.append(f"line {line_id}: UID visibility not explicitly verified")
 
     if len(row_ids) != len(set(row_ids)):
         errors.append("match sheet contains duplicate line_id values")
@@ -661,6 +680,7 @@ def main() -> int:
                 args.stage,
                 errors,
                 warnings,
+                args.require_full_frame_uid,
             )
             shared_passed, shared_detail, shared_metrics = (
                 run_shared_review_check(

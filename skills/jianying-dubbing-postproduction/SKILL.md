@@ -1,6 +1,6 @@
 ---
 name: jianying-dubbing-postproduction
-description: "Automate voiceover postproduction in Jianying Pro or CapCut Desktop: arrange numbered WAV narration clips sequentially, run Manuscript Match, apply caption typography and position in bulk, then resegment the machine-generated captions according to the narration manuscript's meaning, spoken rhythm, and screen presentation; repair line layout, remove adjacent duplicate captions, export raw and final SRT backups, and verify the live timeline. Use for Jianying/剪映 dubbing timelines, imported VoxCPM narration, 文稿匹配, 依据口播稿重新断句, subtitle formatting, semantic caption resegmentation, duplicate cleanup, or SRT backup."
+description: "Build and repair the canonical narration/subtitle timeline in Jianying Pro or CapCut Desktop: choose the current hash-bound audio master, run Manuscript Match, resegment against the canonical manuscript, preserve project typography, eliminate punctuation-only and duplicate rows, verify lexical coverage and audio-tail tolerance, export versioned SRT backups, and prove the live timeline matches the audited file. Use for VoxCPM narration import, 文稿匹配, 修字幕, 最终版字幕, semantic resegmentation, duplicate cleanup, or subtitle authority/version conflicts."
 ---
 
 # Jianying Dubbing Postproduction
@@ -20,6 +20,8 @@ Turn numbered narration WAV files and a clean script into one sequential audio t
 - Caption-list edits rebuild accessibility elements. Fetch fresh UI state after each text edit; never reuse stale element indexes.
 - Preserve the requested font, preset, size, and position while editing caption text.
 - Treat the clean narration manuscript as the semantic authority and Manuscript Match timing as an initial alignment, not as an approved caption segmentation.
+- Authority order is: user-designated final SRT, canonical narration manuscript bound by the current audio manifest, `segments.json` canonical text, raw Manuscript Match, then ASR. `generation_text` and ASR spellings are never subtitle authority.
+- Select the narration master by the latest passing `audio_manifest.json` SHA, not by filename, modification time, or an older `audio_repaired` directory.
 - Prove that the final caption sequence covers the manuscript-matched text exactly once in order. Never accept a visually plausible result with omitted, repeated, or reordered words.
 - When a user-adjusted SRT exists, treat it as the strongest evidence of project-specific segmentation and punctuation preferences. Compare it with the prior semantic version before applying generic length rules.
 - Apply this user's default terminal-punctuation rule to every final caption: remove `，。；：,.;:` at the effective end, including immediately before trailing `」』”’）》〉）】`; preserve `？！?!` unless the user explicitly overrides the style.
@@ -35,6 +37,8 @@ Resolve:
 - the open Jianying project;
 - caption style settings;
 - whether the request stops after matching, includes semantic editing, or includes export.
+
+Read [references/version-authority.md](references/version-authority.md) whenever multiple scripts, SRTs, repair runs or similarly named masters exist. Record the chosen manuscript, audio and SRT hashes before editing.
 
 ## 1. Attach to Jianying safely
 
@@ -129,7 +133,7 @@ When the installed build supports caption-file import:
 
 1. Preserve `captions_matched_raw.srt`, then create the planned semantic SRT as a separate version.
 2. Run `scripts/merge_adjacent_srt.py` to merge adjacent identical captions and extend the earlier time range.
-3. Run `scripts/audit_semantic_srt.py` and require it to pass before touching the live timeline.
+3. Run `scripts/audit_semantic_srt.py raw.srt final.srt --canonical-source 口播纯文本.md --audio-duration-seconds <seconds>` and require it to pass before touching the live timeline.
 4. In Jianying, open `文本 > 新建文本 > 导入本地字幕`; do not use `文件 > 导入`.
 5. Select the audited SRT and confirm the system file dialog.
 6. Verify that Jianying created a `本地字幕` material card whose displayed filename matches the audited SRT. This proves only that the file entered the material panel.
@@ -145,7 +149,7 @@ When caption-file import is absent or unverified, keep the original timing segme
 1. Save the live project after semantic edits and duplicate cleanup.
 2. Open the top-right `导出` dialog, disable video and audio export, enable `字幕导出`, choose `SRT` with `Unicode / UTF-8`, and export the edited caption track as `captions_semantic_final.srt`.
 3. Parse the exported file and report its entry count and final end time.
-4. Run `scripts/audit_semantic_srt.py captions_matched_raw.srt captions_semantic_final.srt`.
+4. Run `scripts/audit_semantic_srt.py captions_matched_raw.srt captions_semantic_final.srt --canonical-source 口播纯文本.md --audio-duration-seconds <seconds>`.
 5. If the exported final SRT does not match the live caption list, do not report the backup as final; repair the export or label it accurately.
 
 ## 10. Final verification
@@ -158,12 +162,14 @@ Verify all of the following before reporting completion:
 - adjacent exact duplicate captions equal zero;
 - no caption ends in `，。；：,.;:`, including before trailing `」』”’）》〉）】`; `？！?!` remain permitted;
 - normalized final text covers the raw Manuscript Match text exactly once and in order, apart from approved terminal style punctuation;
+- normalized final text also covers the frozen canonical narration text exactly once; when the user directly supplied a final SRT, record that this SRT supersedes the earlier segmentation while preserving lexical coverage;
 - no row consists only of punctuation or an unmatched closing quote;
 - semantic boundaries follow the manuscript rather than arbitrary ASR fragments;
 - one/two-line wrapping is readable and does not split names, fixed terms, number-unit pairs, or quotations improperly;
 - quoted passages are balanced across their visible units;
 - the user's example problem is visibly corrected in the live project;
 - both the untouched raw-match SRT and edited final SRT paths exist, and their entry counts are reported separately from the live project count.
+- final SRT end time differs from the current audio master only within the frozen tolerance (100 ms by default; ordinary frame rounding such as 43 ms is acceptable).
 
 State clearly whether work is saved only in the project, backed up as SRT, or exported as video.
 
@@ -173,5 +179,6 @@ When the narration and captions are stable but picture selection remains weak, h
 
 - [references/jianying-ui.md](references/jianying-ui.md): Jianying UI mapping, accessibility behavior, and recovery rules.
 - [references/caption-editing.md](references/caption-editing.md): semantic segmentation and duplicate-prevention heuristics.
+- [references/version-authority.md](references/version-authority.md): canonical text/audio/SRT priority, proxy spellings, and stale-version avoidance.
 - `scripts/merge_adjacent_srt.py`: audit or merge adjacent identical SRT entries without losing their combined time span.
-- `scripts/audit_semantic_srt.py`: verify text coverage, ordering, duplicates, punctuation-only rows, forbidden terminal punctuation, quote balance, length, and reading-speed warnings.
+- `scripts/audit_semantic_srt.py`: verify raw and canonical text coverage, ordering, duplicates, punctuation-only rows, forbidden terminal punctuation, quote balance, audio-tail tolerance, length, and reading-speed warnings.

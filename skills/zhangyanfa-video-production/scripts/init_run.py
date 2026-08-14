@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 
 
@@ -27,6 +27,13 @@ SUBDIRS = (
     "visuals/aesthetic_review",
     "visuals/snapshots",
     "audio",
+    "audio/generated_sources",
+    "tracks/review_package",
+    "tracks/assets",
+    "tracks/b_track",
+    "tracks/c_track",
+    "cover/previews",
+    "cover/approved",
     "qa",
     "harness/checkpoints",
     "harness/checks",
@@ -36,12 +43,7 @@ MUSIC_SOURCE_ROOT = str(
     Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
 )
 SOURCE_PROXY_CACHE_ROOT = str(
-    Path(
-        os.environ.get("AI_VIDEO_SOURCE_PROXY_CACHE_ROOT")
-        or (Path.home() / "Movies" / "AI-Video-Source-Proxies")
-    )
-    .expanduser()
-    .resolve()
+    (Path.home() / "Movies" / "AI-Video-Source-Proxies").resolve()
 )
 
 
@@ -73,6 +75,12 @@ def main() -> int:
         required=True,
         help="Repeat as CLAIM::CHECK_ID; every criterion must name its objective check",
     )
+    parser.add_argument(
+        "--bgm-source-mode",
+        choices=("local_library", "generated_score"),
+        default="local_library",
+        help="Freeze BGM provenance mode for this run",
+    )
     args = parser.parse_args()
 
     root = Path(args.root).expanduser().resolve()
@@ -91,9 +99,13 @@ def main() -> int:
             "deliverable": args.deliverable,
             "scope": {"in_scope": args.in_scope, "out_of_scope": args.out_of_scope},
             "bgm_policy": {
-                "source_root": MUSIC_SOURCE_ROOT,
+                "source_mode": args.bgm_source_mode,
+                "source_root": MUSIC_SOURCE_ROOT if args.bgm_source_mode == "local_library" else None,
                 "allow_external_sources": False,
-                "allow_generated_sources": False,
+                "allow_generated_sources": args.bgm_source_mode == "generated_score",
+                "generated_source_dir": "audio/generated_sources" if args.bgm_source_mode == "generated_score" else None,
+                "allow_lyric_bgm": True,
+                "lyric_use_policy": "conditional_semantic_and_intelligibility_review",
             },
             "render_policy": {
                 "required_engine": "hyperframes",
@@ -147,7 +159,11 @@ def main() -> int:
             "stop_conditions": [
                 "a required objective check fails",
                 "a required input is missing or invalid",
-                f"a planned BGM source is outside {MUSIC_SOURCE_ROOT}",
+                (
+                    f"a planned local-library BGM source is outside {MUSIC_SOURCE_ROOT}"
+                    if args.bgm_source_mode == "local_library"
+                    else "a generated BGM source lacks a passing generation manifest"
+                ),
                 "the next action needs authority outside the contract",
                 "a live-project mutation cannot be recovered or verified",
             ],
@@ -437,15 +453,31 @@ def main() -> int:
                     "observes_mutations": ["offline.artifact"],
                     "observed_targets": ["batch_ledger.tsv"],
                 },
-                {
-                    "id": "bgm_sources_within_music",
-                    "type": "bgm_sources_within_root",
-                    "path": "audio/bgm_manifest.json",
-                    "source_root": MUSIC_SOURCE_ROOT,
-                    "required": True,
-                    "observes_mutations": ["offline.artifact"],
-                    "observed_targets": ["audio/bgm_manifest.json", "sections[].source"],
-                },
+                (
+                    {
+                        "id": "bgm_provenance_current",
+                        "type": "bgm_sources_within_root",
+                        "path": "audio/bgm_manifest.json",
+                        "source_root": MUSIC_SOURCE_ROOT,
+                        "required": True,
+                        "observes_mutations": ["offline.artifact"],
+                        "observed_targets": ["audio/bgm_manifest.json", "sections[].source"],
+                    }
+                    if args.bgm_source_mode == "local_library"
+                    else {
+                        "id": "bgm_provenance_current",
+                        "type": "generated_bgm_manifest_integrity",
+                        "path": "audio/bgm_manifest.json",
+                        "generation_manifest_path": "audio/generation_manifest.json",
+                        "required": True,
+                        "observes_mutations": ["offline.artifact"],
+                        "observed_targets": [
+                            "audio/bgm_manifest.json",
+                            "audio/generation_manifest.json",
+                            "audio/generated_sources",
+                        ],
+                    }
+                ),
                 {
                     "id": "timing_contract_live_clock",
                     "type": "json_assert",
@@ -505,7 +537,8 @@ def main() -> int:
             "workspace": str(root.parent),
             "jianying_draft": "",
             "project_timecode": "",
-            "bgm_source_root": MUSIC_SOURCE_ROOT,
+            "bgm_source_mode": args.bgm_source_mode,
+            "bgm_source_root": MUSIC_SOURCE_ROOT if args.bgm_source_mode == "local_library" else None,
             "workflow_profiles": {
                 "visual_matching": "indexed_bulk_reviewed_v1",
                 "video_rendering": "hyperframes_proxy_gated_v2",

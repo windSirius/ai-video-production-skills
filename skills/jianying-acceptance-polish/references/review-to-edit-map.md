@@ -10,6 +10,10 @@
 | 关键台词没有强调 | emotional under-delivery | Isolate the line with close-up, silence, or black/text card | The line has a unique visual and clean entry/exit |
 | 同一镜头用了很多次 | desensitization | Keep the best use at climax and one optional callback | Recount meets the agreed reuse budget |
 | 字幕没有问题，别动 | regression risk | Lock caption lane during picture/audio work | Caption count, text, style, and timing are unchanged |
+| 看起来像闪过一帧 | renderer boundary or simultaneous fade | Inspect exact frame and neighbors; replace simultaneous fade with hard cut or shared-frame boundary | Center frame contains intended outgoing/incoming image, not empty green/alpha/black |
+| 红框太大/错位 | source-to-canvas transform error | Recompute from source pixel bounds plus actual contain/pad offset; scope to one card | Box encloses only the target phrase at head/mid/tail |
+| 封面人物崩了 | identity/source-fidelity failure | Rebuild from frozen official art; remove AI-redrawn likeness | Named face/model matches source at full and thumbnail scale |
+| 左下出处/右下注释删掉 | production metadata leaked on-screen | Remove burned-in footer; keep provenance in sidecar ledger | Audience frame has no internal labels; ledger still binds source |
 
 ## Cover checklist
 
@@ -17,6 +21,16 @@
 - Avoid a dark transition frame that becomes unreadable at thumbnail size.
 - Keep headline text inside safe margins and test at small scale.
 - Distinguish `generated`, `imported`, and `applied as export cover` in the final report.
+- Freeze official source assets and compare every named face/model directly; do not repair identity with generative redraw.
+
+## Frame-accurate patch checklist
+
+- Convert each reviewer time to the exact output frame using the master FPS; retain the nearest frame plus at least one neighbor on each side.
+- Determine whether the fault exists in source, proxy, composition, chunk, assembled master or final chroma/alpha conversion.
+- Patch the canonical generator. A direct edit to a derived chunk will disappear on rebuild.
+- In HyperFrames, derive both sides of a cut from one integer-frame boundary; independent decimal rounding can create a 1 ns gap that samples as a full black frame.
+- Bind cache reuse to all material inputs. If the cache only checks dimensions/frame count, force the affected chunk.
+- Re-run exact-range and continuous playback QA after assembly.
 
 ## Audio checklist
 

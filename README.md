@@ -1,20 +1,22 @@
 # AI Video Production Skills
 
-用于共同开发 AI 辅助视频生产流程的私有 Codex Skill 仓库。目标是把录屏分析、文稿交接、克隆配音、字幕后期、逐句配画、个人剪辑风格和验收修订拆成可独立验证、可恢复、可协作迭代的模块。
+用于共同开发 AI 辅助视频生产流程的私有 Codex Skill 仓库。目标是把剧情证据与口播稿、录屏分析、克隆配音、字幕后期、逐句配画、个人剪辑风格、验收修订和高质量叙事学习拆成可独立验证、可恢复、可协作迭代的模块。
 
 ## 仓库结构
 
 ```text
 skills/
+├── game-lore-script/                  # 剧情证据链、口播稿与反欧化
 ├── zhangyanfa-video-production/       # 总控流程与客观验收
 ├── voxcpm-batch-dubbing/              # VoxCPM 批量克隆配音
 ├── jianying-dubbing-postproduction/   # 配音铺轨、文稿匹配与字幕整理
 ├── jianying-sentence-visual-matching/ # 逐句检索、评分与重建画面轨
 ├── jianying-zhangyanfa-style/         # “障眼法考据”个人风格 Profile
-└── jianying-acceptance-polish/        # 甲方反馈、技术审计与交付前 QA
+├── jianying-acceptance-polish/        # 甲方反馈、技术审计与交付前 QA
+└── top-tier-narrative-editing/        # 标杆研究、量化评测与可迁移规律
 ```
 
-`zhangyanfa-video-production` 是总入口，其余目录是按阶段调用的独立 Skill。个人风格模块可以替换或扩展，不应与通用生产安全规则混在一起。
+`zhangyanfa-video-production` 是总入口，其余目录是按阶段调用的独立 Skill。`game-lore-script` 冻结上游文字与证据，`top-tier-narrative-editing` 只提供经验证的创作学习结论；两者都不能绕过总控的权威链与交付门禁。个人风格模块可以替换或扩展，不应与通用生产安全规则混在一起。
 
 ## 本地安装
 

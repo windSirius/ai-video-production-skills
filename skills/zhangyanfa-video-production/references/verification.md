@@ -42,7 +42,7 @@ Use `scripts/run_objective_checks.py` with only these safe check types:
 - `mission_flow_coverage`: mission-flow ranges cover the declared source duration within a maximum gap and required evidence fields are nonempty.
 - `srt_no_adjacent_duplicates`: parsed adjacent subtitle texts are not identical.
 - `srt_integrity`: exact cue count, continuous indices, ordered text hash when supplied, lexical coverage against a locked reference, valid ranges, overlap policy, adjacent duplicates, and final-end tolerance all pass.
-- `bgm_sources_within_root`: every `sections[].source` in a BGM manifest is an absolute existing file whose resolved path is inside the declared source root. For this skill, set `source_root` to the resolved configured BGM root (`AI_VIDEO_MUSIC_ROOT`, default `$HOME/Music`).
+- `bgm_sources_within_root`: for `source_mode=local_library`, every `sections[].source` is an absolute existing file whose resolved path is inside the declared source root.
 - `media_probe`: ffprobe metadata satisfies declared duration, resolution, FPS, and stream-count bounds.
 - `media_frame_contract`: probed media frame count, FPS, duration, and stream policy match the canonical timing contract.
 - `live_state_assert`: a captured Jianying state contains required project, timeline, timecode, and track fields and satisfies explicit assertions.
@@ -60,6 +60,8 @@ Use `scripts/run_objective_checks.py` with only these safe check types:
 Paths are relative to the run directory unless absolute. The checker never executes commands supplied by the plan.
 
 Harness may cache a passing expensive check only when its full check configuration, checker-script SHA, and dependency SHA lineage are unchanged. Subsequent prerequisite checks first compare size, mtime, device, and inode; stable fingerprints reuse the prior full-decode/black/seam result without rereading the media, while drift invalidates the cache and reruns the check. Never treat an agent-authored PASS summary as this cache.
+
+For `source_mode=generated_score`, do not run `bgm_sources_within_root`. Require `json_assert` checks for the generation manifest's model/service, prompt hash, source file, source SHA, duration, status and chapter coverage, plus the same lyric/intelligibility review used for local music. The manifest mode is mutually exclusive; never make a generated source pass by copying it into the Music directory.
 
 For `indexed_bulk_reviewed_v1`, use the specialized visual checks as the primary checks for their registered Harness actions. For every new `hyperframes_proxy_gated_v2` run this includes, in order, `source_proxy_manifest_integrity`, the existing index/plan/review/repair checks, `hyperframes_stress_test_integrity`, `aesthetic_proxy_approval_integrity`, `picture_master_integrity` with `render_unit_mode=semantic_visual_units_v2`, and `picture_patch_integrity` with `patch_verification_mode=chunk_scoped_v2`. Do not substitute `file_nonempty`, `json_assert`, or an agent-authored audit summary; those types cannot independently prove profile binding, row coverage, evidence lineage, render approval, or hidden changes. Existing v1 runs continue to use the profile and check flags already frozen in their plans.
 
@@ -89,15 +91,25 @@ BGM provenance example:
 
 ```json
 {
-  "id": "bgm_sources_within_music",
+  "id": "bgm_provenance_current",
   "type": "bgm_sources_within_root",
   "path": "audio/bgm_manifest.json",
-  "source_root": "/absolute/resolved/configured/music/root",
+  "source_root": "$HOME/Music",
   "required": true
 }
 ```
 
 This check follows symlinks. A symlink located in Music that resolves outside Music fails.
+
+For an explicitly authorized generated score, freeze `bgm_policy.source_mode=generated_score` and use the same check ID with `type=generated_bgm_manifest_integrity`. The BGM manifest must bind a passing generation manifest, provider/model, prompt or prompt hash, exact source path, duration and SHA-256. Do not mix local-library and generated-score provenance inside one frozen run.
+
+## Manual visual gates that objective checks cannot replace
+
+- Review every B/C asset in the pre-render review bundle, including original source and proposed treatment.
+- Review every HyperFrames boundary contact-sheet page at original detail.
+- Continuously play the real opening 10 seconds, ending 10 seconds and user-named ranges.
+- Compare cover characters and official models directly against frozen sources at both full size and thumbnail size.
+- Record native/source transitions that trigger blackdetect separately from renderer-created empty frames.
 
 ## Gate sequence
 

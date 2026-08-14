@@ -7,6 +7,23 @@
 - Record narration clip count, caption count, BGM tracks, and current ending frame.
 - Do not delete the main track if linked/ripple deletion would remove captions or audio. Prefer Jianying's “替换片段” command for an equal-duration picture-only render.
 
+### pyJianYingDraft 11.1 media staging
+
+- Before creating a macOS Jianying 11.1 draft, copy all referenced video and audio into a stable directory under `${AI_VIDEO_MEDIA_ROOT:-$HOME/Movies/JianyingMedia}`.
+- Do not point a generated draft directly at media inside iCloud Drive. In the verified 2026-07-28 A/B test, Jianying opened the timeline and captions but marked the iCloud media as `无法访问权限`.
+- Verify hashes after staging, then write the staged absolute paths into the draft.
+- Treat the first Jianying open/save as a migration boundary. Once a draft has been opened or saved by Jianying 11.1, do not overwrite it with pyJianYingDraft; create a new named draft for repairs.
+- A valid live check must show the picture, narration waveform, editable captions, total duration, and at least one critical evidence/payoff frame.
+
+### H2 function-density preflight
+
+- Set `ZHANGYANFA_LEARNING_ROOT` to the local 剪辑学习系统 directory. After freezing the narration-unit map and visual selections, but before generating a new pyJianYingDraft draft, express the planned artificial refreshes in the `visual-density-plan` schema and run `$ZHANGYANFA_LEARNING_ROOT/tools/density_policy_check.py`.
+- Use `$ZHANGYANFA_LEARNING_ROOT/policies/pyjianying-visual-strategy-v0.2.json` as the policy source and preserve the JSON report with the production run.
+- The checker is advisory while `function-dependent-density` remains H2. Do not automatically retime, replace, or reject footage only because the checker warns.
+- Review every artificial refresh inside identity attribution, evidence reading, consequence explanation, and emotional interpretation. Each should add a new identity, relationship, evidence item, causal step, emotional state, orientation cue, or contrast, or have an observable meaning/action/gaze/sound/function-boundary motivation.
+- Source-shot movement is not an artificial refresh. Preserve useful performance, gaze, and action instead of creating one-second cadence by alternating the same evidence with stills or crops.
+- A plan schema error blocks generation; an H2 editorial warning requests review but does not block by default.
+
 ## Build order
 
 1. Place numbered narration WAVs sequentially.

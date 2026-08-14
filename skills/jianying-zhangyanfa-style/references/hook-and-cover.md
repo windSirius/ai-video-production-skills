@@ -15,6 +15,14 @@ The 2026-07-22 finished Himeko reference and its open Jianying project establish
 
 Do not hold the cover longer than one frame unless the user explicitly requests a visible title card.
 
+## Cover source fidelity
+
+- Freeze official character/model sources before layout and record their paths/hashes.
+- Compose by crop, mask, color grade, glow and typography. Do not ask an image model to redraw an official face, costume, silhouette or 3D model when likeness matters.
+- When a supplied source is already a four-character collage, preserve its internal proportions instead of regenerating the four faces independently.
+- Build each required aspect ratio from the same approved source set, then inspect both full resolution and a small platform-thumbnail preview.
+- A visually dramatic cover fails if a named character is malformed, misidentified, mirrored incorrectly or partly replaced by invented anatomy.
+
 ## 0–10 second hook storyboard
 
 Build the opening as roughly 8–10 semantic beats before touching the live timeline. Each beat must serve the spoken clause rather than merely supply motion.
@@ -64,3 +72,11 @@ This is a stability architecture, not a ban on live segmented footage. Keep the 
 - By about 10 seconds, caption size and visual cadence have returned to the body profile.
 - Adding the cover changed every narrative lane by the same one-frame offset and did not create drift.
 - The final export retains an intentional image at the end and contains no unintended black tail.
+
+## Cover acceptance checks
+
+- required aspect ratios exist, are readable and share one visual proposition;
+- every named face/model matches a frozen official source on direct comparison;
+- title, subtitle and question remain legible at thumbnail size;
+- no unintended watermark, cropped head, deformed hand, duplicated limb or invented costume detail remains;
+- source manifest, editable layout and approved exports are recoverable.

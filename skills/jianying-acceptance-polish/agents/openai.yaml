@@ -1,4 +1,4 @@
 interface:
-  display_name: "剪映验收修订"
-  short_description: "根据甲方反馈修正素材、响度、节奏、复用和封面验收风险"
-  default_prompt: "Use $jianying-acceptance-polish to turn reviewer feedback into verified Jianying timeline revisions."
+  display_name: "甲方验收急修"
+  short_description: "按甲方时间码定位闪帧、红框、封面与音画问题并完成最小修复"
+  default_prompt: "使用 $jianying-acceptance-polish，把甲方反馈定位到精确帧和轨道，以最小补丁修复并输出前后验收证据。"

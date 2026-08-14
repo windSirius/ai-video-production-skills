@@ -1,15 +1,17 @@
 ---
 name: jianying-zhangyanfa-style
-description: Rebuild Jianying Pro or CapCut Desktop commentary, lore-analysis, and character-study videos in Alan's “障眼法考据” editing style. Use for 复刻个人剪辑习惯, 障眼法考据风格, learning from a finished video and open Jianying project, applying the user's subtitle/audio/picture-master conventions, making a one-frame platform cover, building a high-density 0–10 second PV/CG hook, or auditing whether a draft matches this personal style.
+description: Rebuild Jianying Pro or CapCut Desktop commentary, lore-analysis, and character-study videos in Alan's “障眼法考据” editing style. Use for 复刻个人剪辑习惯, A/B/C多轨设计, 证据卡与剪影, B轨绿幕, one-frame platform covers, official-source-faithful cover art, high-density 0–10 second PV/CG hooks, or auditing whether a draft matches this personal style.
 ---
 
 # 障眼法考据剪辑风格
 
 ## Goal
 
-Reproduce the user's editing grammar, not the topic-specific footage of one reference video. Treat narration as the spine, gameplay as emotional evidence, research cards as factual evidence, and music as chapter punctuation.
+Apply the user's subject format, production constraints, and proven project conventions without treating the user's current edit as the quality ceiling. When the user asks for stronger, top-tier, benchmarked, or self-improving narrative editing, use `top-tier-narrative-editing` first to define and test the editorial mechanism, then use this skill to implement it in the user's workflow.
 
-Read [style-profile.md](references/style-profile.md) before making editorial decisions. Read [hook-and-cover.md](references/hook-and-cover.md) when the brief calls for a high-retention opening or a platform cover. Read [jianying-execution.md](references/jianying-execution.md) before changing a live Jianying draft.
+Treat narration as the spine, gameplay as emotional evidence, research cards as factual evidence, and music as chapter punctuation. Reproduce a personal convention only when it supports the target narrative or the user explicitly prefers it.
+
+Read [style-profile.md](references/style-profile.md) before making editorial decisions. Read [hook-and-cover.md](references/hook-and-cover.md) when the brief calls for a high-retention opening or a platform cover. Read [auxiliary-track-grammar.md](references/auxiliary-track-grammar.md) before designing B/C tracks, evidence cards, silhouettes or green-screen overlays. Read [jianying-execution.md](references/jianying-execution.md) before changing a live Jianying draft.
 
 ## Permanent UI exclusion
 
@@ -23,11 +25,12 @@ Treat every control labeled 「试试剪映助手」 or 「剪映助手」 as pe
    Promote a trait only when it repeats across references, is explicitly requested by the user, or is corroborated by both a finished export and its live project. Keep single-sample implementation choices conditional.
 4. Divide the narration into narrative units: hook, setup, claim, evidence, counterpoint, emotional turn, thesis, and outro.
 5. Build or revise the main picture track sentence by sentence. Prefer semantic and emotional continuity over literal keyword matching.
-6. Add research screenshots or quote cards only where they prove a claim. Use an upper-track live overlay, or bake them into a stability-first picture master only when the editable card and match plan remain recoverable.
-7. Apply the observed subtitle and audio defaults from the profile as starting settings, then verify the finished export. Deviate when the target project visibly requires it.
-8. Change BGM at chapter boundaries, not at every visual cut.
-9. Perform visible QA at the hook, first thesis card, one evidence card, emotional slowdown, climax, and final frame.
-10. Deliver a brief acceptance report with exact parameters, intentional deviations, unresolved low-confidence judgments, and links to any generated match plan.
+6. Decide A/B/C responsibilities before rendering. Add research screenshots or quote cards only where they prove a claim. Use an upper-track live overlay, or bake them into a stability-first picture master only when the editable card and match plan remain recoverable.
+7. Build a complete B/C review pack and let the user inspect every proposed still, silhouette, crop, highlight and text card before render. Approval of an explanation-card style does not approve unreviewed character silhouettes.
+8. Apply the observed subtitle and audio defaults from the profile as starting settings, then verify the finished export. Deviate when the target project visibly requires it.
+9. Change BGM at chapter boundaries, not at every visual cut.
+10. Perform visible QA at the hook, first thesis card, one evidence card, emotional slowdown, climax, and final frame.
+11. Deliver a brief acceptance report with exact parameters, intentional deviations, unresolved low-confidence judgments, and links to any generated match plan.
 
 ## Editorial Grammar
 
@@ -93,9 +96,13 @@ Do not imitate the reference export's `854×480` delivery resolution. That is an
 - When the source aspect ratio leaves unused bands, use a blurred extension or background layer rather than stretching the evidence.
 - The reference project used a Jianying blur effect around intensity `50` for this treatment. Verify legibility after applying it.
 - Keep normal subtitles visible unless they duplicate the evidence card text.
+- Do not add internal-production labels such as `依据`, `审核通过前禁止上片`, source IDs or explanatory footers to audience-facing cards unless the user explicitly approves them. Keep provenance in the ledger, not burned into the image.
+- Hold each page long enough to read and use a true hard cut between adjacent evidence pages. Never fade the outgoing and incoming cards to zero simultaneously; that produces a one-frame green/transparent flash.
+- Position highlight rectangles from the source image's actual pixel bounds plus contain/pad offsets. A shared global box is unsafe across differently sized screenshots.
 
 ## Coordination With Other Skills
 
+- Use `top-tier-narrative-editing` to research recognized reference works, form evidence-graded hypotheses, design A/B treatments, and evaluate whether a revision improves beyond the user's historical baseline.
 - Use `jianying-dubbing-postproduction` for numbered narration WAVs, Manuscript Match, subtitle cleanup, and SRT backup.
 - Use `jianying-sentence-visual-matching` for exhaustive sentence-to-shot matching and reuse auditing.
 - Use `jianying-acceptance-polish` when the request is driven by client or platform review notes.
@@ -121,3 +128,5 @@ Do not imitate the reference export's `854×480` delivery resolution. That is an
 - The visual rhythm accelerates in argument-heavy sections and relaxes in reflective sections.
 - The first and final frame are intentional, and there is no unintended tail black.
 - The previous picture track or draft remains recoverable.
+- Every B/C asset was approved before rendering; no production-only footer or provenance label appears in the audience frame.
+- Covers preserve official character faces, silhouettes, costumes and models from frozen source imagery at full size and thumbnail size; no AI-redrawn official face is accepted.

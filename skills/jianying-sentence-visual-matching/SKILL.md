@@ -1,6 +1,6 @@
 ---
 name: jianying-sentence-visual-matching
-description: "Build reusable narration-to-picture edits with an indexed bulk workflow: freeze the final SRT, search a full Vision/OCR shot corpus, retain a full candidate pool and expose at least three ranked choices per cue, optimize selections globally, review every selected shot plus risk-row candidates and identities, render an equal-duration picture-only master, and apply hash-bound incremental repairs before Jianying replacement. Use for 剪映画面匹配, 批量逐句配画, 每句话找多个候选, 口播与游戏画面对齐, subtitle-to-shot matching, rebuilding a long picture track, or repairing generic, repeated, or semantically wrong footage."
+description: "Build a reviewed narration-to-picture A-track from a frozen final SRT: index complete recordings with Vision/OCR, retain diverse candidates, globally select exact source ranges, preserve full 16:9 frames and UID for Alan's house workflow, create a 0–10 second CG/PV hook, review selected and risk-row A/B/C evidence, render a low-memory equal-duration picture-only master in HyperFrames, and apply hash-bound cue repairs. Use for 批量逐句配画, A轨, 每句话找候选, 口播与录屏对齐, UID完整画幅, hook montage, or repairing repeated/semantically wrong footage."
 ---
 
 # Jianying Sentence Visual Matching
@@ -21,6 +21,9 @@ Build a picture track from narration meaning without losing the user's captions,
 - Keep a recoverable match plan outside the editor.
 - Do not equate three populated candidate fields with three visually reviewed candidates. Record machine proposal, selected-shot review, candidate review, and identity review as separate states.
 - Do not bulk-apply an incomplete plan. Finish global retrieval, selected-contact review, risk-row A/B/C review, reuse/overlap audit, and opening/ending review first.
+- For Alan's house workflow, preserve every source as a complete 16:9 frame with the original UID visible. Use contain-and-pad when aspect ratios differ; never mix cropped UID-hidden shots with full-frame shots.
+- Menus, character archives, reasoning pages, task HUD, capture overlays, black/white flashes and transient unlock notices are review risks, not acceptable evidence merely because OCR matches.
+- The first 10 seconds are a separate hook sequence: prefer approved official CG/PV shots, roughly one meaningful cut per second, while retaining narration timing and saving the strongest climax shot.
 
 ## Definition of done
 
@@ -35,6 +38,7 @@ The task is complete only when:
 - reuse and continuity audits pass;
 - the review bundle binds to the current match-sheet SHA-256 and contains no unresolved repair row;
 - the rebuilt picture track is visible in Jianying and its duration still matches the stable narration timeline.
+- the full-frame/UID contract, opening 10-second continuous review, ending 10-second continuous review and every user-named range pass.
 
 ## Inputs and handoff
 
@@ -78,7 +82,7 @@ Read [references/indexed-bulk-workflow.md](references/indexed-bulk-workflow.md) 
 1. Parse every unit into subject, named entities, action/state, object/location, emotion, narrative job, and required screen time.
 2. Build a project identity dictionary before retrieval. Keep visually distinct characters separate even when OCR or dialogue places their names in the same frame.
 3. Search the full corpus in one job. Combine text/OCR similarity, aliases, chapter source priors, exact-quote bonuses, source phase, and negative penalties for menus, loading, black transitions, UI clutter, unresolved OCR, and source edges.
-4. Retain the complete viable candidate pool, normally 32–64 results when available, then record at least A/B/C with distinct source ranges. Give every candidate a stable ID and head/middle/tail evidence. Run the expansion ladder when the pool remains weak.
+4. Retain the complete viable candidate pool: normally 8–12 diverse candidates per ordinary cue, expanding up to 32 for identity-sensitive, ambiguous or high-risk cues. Record at least A/B/C with distinct source/time windows. Give every candidate a stable ID and head/middle/tail evidence. Run the expansion ladder when fewer than three viable candidates remain or the top choices are generic.
 5. Make a provisional selection against the full pool using global reuse, overlap, reverse-order, adjacency, and strong-shot-budget costs, not independent top-one ranking alone.
 6. Record the complete machine proposal in `match_sheet.tsv` with `qa_status=machine_proposed`; do not mark it reviewed or render-ready.
 7. Generate selected-shot evidence for every unit and A/B/C evidence for every risk row.
@@ -91,9 +95,10 @@ Use 2-3 shots inside a 3-4 second slot only for intentional hooks, comparisons, 
 2. Inspect A/B/C head/middle/tail contact sheets for all risk rows defined in the indexed workflow reference.
 3. Verify named-character identity from the image itself or trusted character evidence; dialogue text that mentions a name is not identity proof.
 4. Audit the first hook interval and ending interval as independent sequences rather than isolated thumbnails.
-5. Write a review manifest bound to the exact match-sheet hash. Record reviewed cue IDs, evidence paths, identity verdicts, unresolved rows, and reviewer notes.
-6. Apply review decisions through a repair manifest. A manual override must enter the retained pool with evidence before selection. Rerun global reuse/overlap checks and repeat until no unresolved row remains.
-7. Run `scripts/audit_match_sheet.py --stage render-ready` with the canonical SRT, current source manifest, candidate pool, review manifest, and selected-evidence TSV. The script delegates the final review gate to the production checker so the standalone skill cannot pass a weaker audit. Do not render on the proposed-stage audit alone.
+5. Continuously play the actual 0–10 second hook, final 10 seconds, and every user-named time range. A whole-video 10-second overview is not a substitute.
+6. Write a review manifest bound to the exact match-sheet hash. Record reviewed cue IDs, evidence paths, identity verdicts, UID/full-frame verdicts, unresolved rows, and reviewer notes.
+7. Apply review decisions through a repair manifest. A manual override must enter the retained pool with evidence before selection. Rerun global reuse/overlap checks and repeat until no unresolved row remains.
+8. Run `scripts/audit_match_sheet.py --stage render-ready --require-full-frame-uid` with the canonical SRT, current source manifest, candidate pool, review manifest, and selected-evidence TSV for Alan's workflow. The script delegates the final review gate to the production checker so the standalone skill cannot pass a weaker audit. Do not render on the proposed-stage audit alone.
 
 ## 6. Budget strong shots
 
@@ -117,6 +122,8 @@ Choose the safest implementation:
 
 For feedback after a master exists, patch only declared cue/range IDs through a hash-bound repair manifest. Re-audit the whole plan and source overlap after every patch. Incrementally rerender only when the unchanged ranges and exact frame boundaries are proven; otherwise rerender the full master. Keep prior masters recoverable until acceptance.
 
+For a long picture master, use chunked HyperFrames with one worker and normalized clip proxies. Derive every clip start/end from integer output frames, serialize a shared boundary once, and bind cache reuse to HTML, asset, plan and proxy hashes. Independent decimal rounding can create a one-frame black flash even when both source clips are valid.
+
 ## 8. Apply and verify the result
 
 Inspect at minimum:
@@ -127,6 +134,9 @@ Inspect at minimum:
 - each emotionally important line;
 - transitions around black cards or title cards;
 - the first, middle, and last caption alignment.
+- the real first and last 10 seconds by continuous playback, not only thumbnails;
+- every semantic boundary and chunk seam at `-1 / 0 / +1` frames;
+- UID visibility and full-frame geometry in all reviewed segments.
 
 Require:
 

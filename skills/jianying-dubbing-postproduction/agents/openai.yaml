@@ -1,4 +1,4 @@
 interface:
-  display_name: "剪映配音后期"
-  short_description: "剪映配音铺轨、文稿匹配与依据口播稿重做字幕断句格式"
-  default_prompt: "使用 $jianying-dubbing-postproduction 顺序铺设配音并运行文稿匹配，再依据口播稿语义重做字幕断句与单双行格式，清理重复项并导出最终 SRT。"
+  display_name: "剪映配音字幕后期"
+  short_description: "选择权威音频、语义断句、正典覆盖核对与最终SRT时间轴验收"
+  default_prompt: "使用 $jianying-dubbing-postproduction，选择当前权威配音母版，按正典口播修复字幕断句并导出可核验的最终 SRT。"

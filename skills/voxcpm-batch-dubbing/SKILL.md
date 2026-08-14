@@ -1,6 +1,6 @@
 ---
 name: voxcpm-batch-dubbing
-description: "Automate long-form voice cloning and batch narration in a local VoxCPM or VoxCPM2 Gradio app: start or attach to the app, use Ultimate Cloning with a reference WAV and its transcript, read scripts from PDF/DOCX/TXT/Markdown, split them into natural segments, generate each Target Text sequentially, save every WAV before it is replaced, run signal and ASR quality checks, and produce a final manifest. Use for VoxCPM batch dubbing, reference-voice cloning, long-script voiceover, repeated Target Text generation, or continuation of a user-prepared VoxCPM browser session."
+description: "Automate long-form voice cloning and repaired narration masters in a local VoxCPM or VoxCPM2 Gradio app: preserve canonical text separately from pronunciation proxies, split and generate sequentially, save every candidate, enforce signal/ASR/similarity gates (0.90 by default for Alan's workflow), rerun weak segments, repair clicks/silence/loudness, assemble the final WAV, and emit hash-bound manifests. Use for VoxCPM batch dubbing, voice cloning, long-script narration, similarity QA, targeted re-generation, or audio repair."
 ---
 
 # VoxCPM Batch Dubbing
@@ -16,6 +16,10 @@ Turn a prepared reference voice and a long script into numbered, checked WAV cli
 - Save the generated WAV before replacing Target Text. A new result replaces the previous result in the Gradio page.
 - Do not claim to have subjectively listened when no audio-perception tool is available. Use transcription and signal checks, then state the limitation. Ask the user to audition uncertain pronunciation, emotion, or timbre.
 - Preserve a user-prepared browser session. Do not open a blank page when the prepared tab can be controlled.
+- Keep `canonical_text` and `generation_text` separate. Pronunciation proxies such as `胡寄生` may be submitted to VoxCPM, but the canonical manuscript, subtitle, and manifest must retain `槲寄生`.
+- For Alan's production workflow, require normalized ASR similarity `>= 0.90` for every accepted segment unless the user explicitly sets a stricter threshold. A strong average never excuses one failed segment.
+- Never overwrite an accepted segment with a new attempt. Keep attempts separately, promote exactly one file to the canonical numbered path, and record both hashes.
+- A stitched raw generation is not the final master. Run targeted repair, stable-loudness normalization, full decode, and secondary ASR before handoff.
 
 ## 1. Establish the control surface
 
@@ -36,6 +40,7 @@ Identify:
 - source narration document;
 - output directory and naming scheme;
 - whether Target Text already contains the first prepared segment.
+- the canonical-text path, pronunciation map, minimum similarity, loudness target, and whether an earlier repaired master already exists.
 
 Use the applicable artifact skill to read the source document. For PDF, render and inspect pages as required by the PDF skill; for DOCX, use the Documents skill. Strip titles, page numbers, headers, and layout artifacts from narration text.
 
@@ -62,6 +67,8 @@ Split at semantic boundaries, not arbitrary character positions:
 
 Write a compact `segments.md` or equivalent manifest in the output directory when the job has multiple segments.
 
+Prefer `segments.json` as the machine authority. Each row should include `segment_id`, `canonical_text`, `generation_text`, source span and eventual accepted WAV hash. Read [references/repair-and-authority.md](references/repair-and-authority.md) before using pronunciation substitutions or choosing between old and new repaired masters.
+
 ## 5. Generate, save, and validate each segment
 
 For each segment, in order:
@@ -73,8 +80,9 @@ For each segment, in order:
 5. Wait until processing disappears and the generated-audio download URL changes.
 6. Immediately save that URL as `01.wav`, `02.wav`, and so on. Direct local download with `curl -fsS <gradio-url> -o <file>` is valid; files do not need to appear in Chrome Downloads.
 7. Run `scripts/qa_audio.py` on the saved file.
-8. When SenseVoice is available, run `scripts/transcribe_sensevoice.py` and compare coverage, order, and the final words against the source segment.
-9. Proceed only after the file exists and validation passes.
+8. When SenseVoice is available, run `scripts/transcribe_sensevoice.py`, then run `scripts/audit_similarity.py` against `canonical_text`. Do not compare ASR to the pronunciation proxy.
+9. Require per-segment similarity to meet the frozen threshold; for this workflow the default is `0.90`.
+10. Proceed only after the file exists and validation passes.
 
 Retry or split the segment when any of these occur:
 
@@ -86,7 +94,20 @@ Retry or split the segment when any of these occur:
 
 Treat isolated ASR substitutions of proper nouns or homophones as uncertainty, not proof of a synthesis error. Confirm omissions and repetitions from surrounding coverage and the audio duration.
 
-## 6. Finish and report
+When a segment fails, retry only that segment. Prefer changing split boundaries or a documented pronunciation proxy before changing model settings. Preserve failed attempts under `attempts/<segment_id>/`, then promote the best verified candidate to `audio/<segment_id>.wav`.
+
+## 6. Repair and assemble the master
+
+1. Remove only verified clicks, excessive head/tail silence, clipped joins or abnormal loudness; do not denoise away breaths or consonants by default.
+2. Assemble accepted numbered clips in order without time-stretching them.
+3. Normalize to a stable spoken-loudness target and true-peak ceiling recorded in the run manifest. Preserve a pre-normalization master for recovery.
+4. Run full decode, duration and clipping checks on the assembled WAV.
+5. Run secondary ASR over the repaired master or every repaired segment and repeat the canonical-text similarity audit.
+6. Record repair operations, input/output hashes and the exact promoted master in `repair_qa.json` and `audio_manifest.json`.
+
+Do not select a file merely because its name contains `final` or `repaired`. The current master is the one whose SHA is bound by the latest passing manifest.
+
+## 7. Finish and report
 
 Verify:
 
@@ -95,11 +116,13 @@ Verify:
 - sample rate, channel count, and encoding are consistent;
 - summed duration and total size are plausible;
 - the last segment ends with the last words of the source;
+- every segment reaches the frozen similarity threshold and the repaired master passes secondary ASR;
+- `audio_manifest.json` identifies one canonical master SHA and does not point at an older repair run;
 - the output directory and segment manifest are linked in the final response.
 
 Report subjective-audio limitations separately from objective checks.
 
-Treat the numbered WAV files, `segments.md`, QA results, and final manifest as the handoff package for `jianying-dubbing-postproduction`.
+Treat the canonical numbered WAV files, `segments.json`, pronunciation map, ASR outputs, `repair_qa.json`, final master and `audio_manifest.json` as the handoff package for `jianying-dubbing-postproduction`.
 
 ## Cancellation
 
@@ -108,5 +131,7 @@ When the user asks to stop, cancel the active generation and stop only the exact
 ## Resources
 
 - `references/voxcpm-gradio.md`: launch command, UI mapping, and recovery guidance.
+- `references/repair-and-authority.md`: canonical/generation text separation, similarity, repair, loudness, and version-selection rules.
 - `scripts/qa_audio.py`: format, duration, silence, and clipping-oriented checks.
 - `scripts/transcribe_sensevoice.py`: load SenseVoice once and transcribe multiple generated clips.
+- `scripts/audit_similarity.py`: deterministic normalized similarity gate for canonical text versus ASR.

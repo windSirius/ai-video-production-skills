@@ -9,6 +9,8 @@ This profile now uses two finished videos and their open Jianying projects:
 
 Treat settings visible in a live project as hard implementation evidence, finished-video measurements as delivery evidence, and aesthetic interpretation as an adjustable guardrail. A trait repeated in both projects has more weight than a topic-specific choice from either video.
 
+This profile is an application and historical-baseline record, not a top-tier quality standard. When a stronger benchmarked method conflicts with a habit recorded here, test the stronger method through `top-tier-narrative-editing`; retain the personal habit only when it wins the comparison, is required by the production environment, or the user explicitly prefers it.
+
 The first-reference parameter table is retained for traceability; second-reference confirmations follow it.
 
 | Trait | Observed value | Confidence |
@@ -90,6 +92,8 @@ Use the stability-first form for automated assembly and equal-duration replaceme
 - A red rectangle or red type isolates the decisive lines in either mode.
 - Blurred extension or background bands when aspect ratios differ.
 - Hold long enough to read; split a long quotation into more than one card if necessary. The Himeko reference holds a dense late source page for about 8.5 seconds before returning to character footage.
+- Keep provenance and review warnings in sidecar ledgers. Do not burn internal source IDs, `依据`, or `审核通过前禁止上片` into audience-facing cards unless the user explicitly asks for them.
+- Adjacent page replacements use hard cuts or a continuous hold; never fade both clips to the empty background at the same instant.
 
 ## Audio grammar
 

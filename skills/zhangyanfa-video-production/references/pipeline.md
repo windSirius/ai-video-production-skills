@@ -31,8 +31,13 @@ Keep timing-contract, source, proxy, index, match-plan, review, composition, chu
 | Target-resolution production render | approved aesthetic proxies, disk preflight, current hashes | one planned full-length HyperFrames picture-only master and render lineage | required engine/profile, exact frame count, metadata, input-hash, review-hash, and audio-policy checks pass |
 | Final picture QA | candidate production master | one complete probe/decode/black/seam/frame/audio-policy report | all full-output checks pass once against the current master hash |
 | Incremental picture patch | accepted base master plus declared feedback delta | changed chunks, patched master, base/delta/unchanged-chunk lineage | changed chunks and adjacent seams pass; unchanged hashes match; no redundant full comparison of base and output |
-| BGM selection | recursive inventory of the configured BGM root (`AI_VIDEO_MUSIC_ROOT`, default `$HOME/Music`) and stable narration | `audio/bgm_manifest.json`, chapter derivatives | every source resolves inside the configured root; provenance check passes |
+| Track architecture | final SRT, available footage and evidence needs | `tracks/track_plan.json`, A/B/C scope and review requirements | every non-A layer has a stated narrative job |
+| B/C asset review | approved track plan and proposed screenshots/cards/silhouettes | `tracks/review_manifest.json`, contact sheets, source ledger | every used asset, identity and treatment is visibly approved |
+| B/C render | approved review manifest and timing contract | alpha or green-screen auxiliary master plus render receipts | frame clock, card holds, transition background and downstream mode pass |
+| BGM preparation | final SRT, final narration and selected `local_library` or `generated_score` mode | `audio/bgm_manifest.json`, generated/local sources and chapter derivatives | mode-specific provenance, chapter, lyric and intelligibility checks pass |
+| Cover | title promise, approved official/user assets and requested aspect ratios | `cover/cover_sources.json`, previews and approved covers | source fidelity and thumbnail checks pass for every ratio |
 | Acceptance | current draft and feedback | edit ledger, QA artifacts, report | every P0/P1 row has evidence-backed status |
+| Storage lifecycle | accepted artifacts, source/reference graph and size inventory | cleanup plan and post-cleanup verification | only authorized, recoverable or reproducible data changes |
 
 ## Resume rules
 
@@ -57,8 +62,11 @@ Keep timing-contract, source, proxy, index, match-plan, review, composition, chu
 - Visual retrieval, focused fallback: one semantic visual unit per batch under `match_rows_per_batch=1`; use this only for a few corrections when a complete normalized index is unavailable.
 - Picture generation: one current-generation HyperFrames composition/render plan, one 30–60 second stress sample, one 720p opening/ending/middle proxy bundle, one planned target-resolution master, one final-QA report, or one declared incremental patch per batch. Picture application is one live replacement and never includes caption mutation.
 - Evidence cards: one card per batch.
-- BGM source selection: one Music-folder source decision per batch; record provenance before rendering derivatives.
+- B/C asset review: one complete review bundle per episode; repair only declared asset IDs.
+- BGM source selection: one chapter/source decision per batch; record `local_library` or `generated_score` provenance before rendering derivatives.
 - BGM automation: one rhetorical interval per batch.
+- Cover: one aspect-ratio layout per review batch; share frozen sources, not geometry.
+- Storage: one declared cleanup class per batch; run a dry inventory before moving or deleting anything.
 - Live Jianying: one mutation class, then fetch fresh UI state and run the linked check.
 
 The plan-level limits are still one-assumption limits: `visual_indexes_per_batch=1`, `match_plans_per_batch=1`, `match_review_bundles_per_batch=1`, `match_repair_sets_per_batch=1`, `picture_masters_per_batch=1`, and `picture_patches_per_batch=1`. Reduce limits further after any failed assumption. Do not increase them ad hoc. The only live production-loop promotion is the harness-registered narration quick-add loop after two consecutive identical successes and with per-item identity/end checks.

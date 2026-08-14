@@ -1,4 +1,4 @@
 interface:
   display_name: "障眼法考据剪辑风格"
-  short_description: "复刻个人考据视频的剪映轨道、节奏、字幕、声音与验收流程"
-  default_prompt: "Use $jianying-zhangyanfa-style to rebuild this Jianying draft in my established editing style."
+  short_description: "障眼法风格A/B/C轨、证据卡、绿幕、CG钩子与官方素材封面"
+  default_prompt: "使用 $jianying-zhangyanfa-style，为这期视频设计经审核的A/B/C轨、证据卡或剪影、绿幕交付、前10秒钩子和官方素材忠实封面。"

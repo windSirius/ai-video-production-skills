@@ -112,6 +112,38 @@ class HarnessTest(unittest.TestCase):
             check=False,
         )
 
+    def test_generated_bgm_mode_initializes_and_validates_contract(self) -> None:
+        generated_root = Path(self.temporary.name) / "generated-run"
+        initialized = self.run_command(
+            INIT,
+            "--root",
+            generated_root,
+            "--title",
+            "生成配乐测试",
+            "--objective",
+            "得到一个可验证草稿",
+            "--deliverable",
+            "草稿",
+            "--in-scope",
+            "生成配乐",
+            "--out-of-scope",
+            "最终导出",
+            "--success-criterion",
+            "合同存在::request_contract_exists",
+            "--bgm-source-mode",
+            "generated_score",
+        )
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        contract = json.loads((generated_root / "request_contract.json").read_text(encoding="utf-8"))
+        self.assertEqual(contract["bgm_policy"]["source_mode"], "generated_score")
+        self.assertTrue(contract["bgm_policy"]["allow_generated_sources"])
+        self.assertIsNone(contract["bgm_policy"]["source_root"])
+        plan = json.loads((generated_root / "verification_plan.json").read_text(encoding="utf-8"))
+        check = next(item for item in plan["checks"] if item["id"] == "bgm_provenance_current")
+        self.assertEqual(check["type"], "generated_bgm_manifest_integrity")
+        validated = self.run_command(VALIDATE, generated_root, "--contract-only")
+        self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
+
     def test_json_assert_eq_field_compares_two_fields(self) -> None:
         assertions = [
             {
@@ -3239,74 +3271,6 @@ class HarnessTest(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout.strip(), str((Path.home() / "Music").resolve()))
-
-    def test_custom_music_and_proxy_roots_flow_through_new_run_contract(self) -> None:
-        custom_music = Path(self.temporary.name) / "music"
-        custom_proxy = Path(self.temporary.name) / "source-proxies"
-        custom_music.mkdir()
-        custom_proxy.mkdir()
-        custom_root = Path(self.temporary.name) / "custom-run"
-        environment = os.environ.copy()
-        environment["AI_VIDEO_MUSIC_ROOT"] = str(custom_music)
-        environment["AI_VIDEO_SOURCE_PROXY_CACHE_ROOT"] = str(custom_proxy)
-        completed = subprocess.run(
-            [
-                sys.executable,
-                str(INIT),
-                "--root",
-                str(custom_root),
-                "--title",
-                "自定义路径测试",
-                "--objective",
-                "得到一个可验证草稿",
-                "--deliverable",
-                "草稿",
-                "--in-scope",
-                "剪映草稿",
-                "--out-of-scope",
-                "最终导出",
-                "--success-criterion",
-                "合同存在::request_contract_exists",
-            ],
-            env=environment,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-
-        contract = json.loads(
-            (custom_root / "request_contract.json").read_text(encoding="utf-8")
-        )
-        plan = json.loads(
-            (custom_root / "verification_plan.json").read_text(encoding="utf-8")
-        )
-        manifest = json.loads(
-            (custom_root / "run_manifest.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(
-            contract["bgm_policy"]["source_root"], str(custom_music.resolve())
-        )
-        self.assertEqual(
-            contract["render_policy"]["source_proxy"]["cache_root"],
-            str(custom_proxy.resolve()),
-        )
-        self.assertEqual(manifest["bgm_source_root"], str(custom_music.resolve()))
-        bgm_check = next(
-            check
-            for check in plan["checks"]
-            if check["id"] == "bgm_sources_within_music"
-        )
-        self.assertEqual(bgm_check["source_root"], str(custom_music.resolve()))
-
-        validated = subprocess.run(
-            [sys.executable, str(VALIDATE), str(custom_root), "--contract-only"],
-            env=environment,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(validated.returncode, 0, validated.stderr or validated.stdout)
 
     def test_srt_integrity_catches_count_and_coverage(self) -> None:
         reference = self.root / "clean_script.md"

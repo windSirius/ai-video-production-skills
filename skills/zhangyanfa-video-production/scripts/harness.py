@@ -2717,12 +2717,24 @@ def validate_timing_contract(path: Path) -> dict[str, Any]:
 
 def validate_bgm_manifest(root: Path) -> dict[str, Any]:
     path = root / "audio/bgm_manifest.json"
-    check = {
-        "id": "harness_bgm_sources_within_music",
-        "type": "bgm_sources_within_root",
-        "path": str(path),
-        "source_root": str(MUSIC_SOURCE_ROOT),
-    }
+    manifest = read_json(path, "BGM manifest")
+    source_mode = manifest.get("source_mode", "local_library")
+    if source_mode == "local_library":
+        check = {
+            "id": "harness_bgm_provenance",
+            "type": "bgm_sources_within_root",
+            "path": str(path),
+            "source_root": str(MUSIC_SOURCE_ROOT),
+        }
+    elif source_mode == "generated_score":
+        check = {
+            "id": "harness_bgm_provenance",
+            "type": "generated_bgm_manifest_integrity",
+            "path": str(path),
+            "generation_manifest_path": "audio/generation_manifest.json",
+        }
+    else:
+        raise ValueError(f"unsupported BGM source_mode={source_mode!r}")
     passed, detail, metrics = run_check(root, check)
     if not passed:
         raise ValueError(f"BGM provenance failed: {detail}")

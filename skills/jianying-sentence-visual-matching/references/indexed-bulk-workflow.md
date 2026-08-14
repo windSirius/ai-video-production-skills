@@ -41,11 +41,13 @@ visuals/render_manifest.json
 visuals/render_segment_manifest.tsv
 visuals/picture_master.mp4
 visuals/picture_master_qa.json
+visuals/boundary_contact_sheets/
+visuals/continuous_range_review.json
 ```
 
 Bind review, repair, render, and QA files to their input SHA-256 values. A stale review manifest cannot approve a changed match sheet.
 
-Keep one candidate-pool JSONL row per cue. Preserve the complete viable retrieval pool, normally 32–64 items when available, instead of discarding every result except A/B/C. Give each candidate a stable ID derived from source SHA, exact frame range, and treatment; record origin, head/middle/tail evidence, score components, identity claims, UI/rights risk, and retry round. When fewer than 32 viable items remain, record a nonempty `candidate_shortfall_reason` and nonempty `candidate_expansion_attempts`; three candidates are the hard floor, not the normal target. The final `selected_candidate_id` must exist in the current pool and its source ID, file, and exact range must equal the selected match-sheet row. Add an analyst-discovered override to the pool as `origin=manual_expansion` before selecting it.
+Keep one candidate-pool JSONL row per cue. Preserve the viable retrieval pool instead of discarding every result except A/B/C: target 8–12 diverse items for an ordinary cue and expand up to 32 when identity, chronology, UI or semantic ambiguity makes the row high risk. Give each candidate a stable ID derived from source SHA, exact frame range and treatment; record origin, head/middle/tail evidence, score components, identity claims, UID/full-frame geometry, UI/rights risk and retry round. When fewer than three viable items remain, record a nonempty `candidate_shortfall_reason` and `candidate_expansion_attempts`; three candidates are the hard floor. The final `selected_candidate_id` must exist in the current pool and its source ID, file and exact range must equal the selected match-sheet row. Add an analyst-discovered override to the pool as `origin=manual_expansion` before selecting it.
 
 Use a generation manifest such as:
 
@@ -77,7 +79,7 @@ Use a configurable combination of:
 - source chronology and phase;
 - penalties for menus, loading, UI clutter, unresolved OCR, black/white transitions, source heads/tails, and prior reuse.
 
-Keep the full viable pool, normally 32–64 when possible. Enforce time/source diversity before selecting A/B/C. Optimize against the full pool rather than only the three review choices. If the global optimizer is infeasible, emit `NEEDS_EXPANSION` with affected cue IDs; do not silently fall back to repeated or unreviewed ranges. Treat the highest machine score as a proposal, not proof.
+Keep the full viable pool under the 8–12 ordinary / up-to-32 risk budget. Enforce time/source diversity before selecting A/B/C. Optimize against the full pool rather than only the three review choices. If the global optimizer is infeasible, emit `NEEDS_EXPANSION` with affected cue IDs; do not silently fall back to repeated or unreviewed ranges. Treat the highest machine score as a proposal, not proof.
 
 ## Global selection
 
@@ -105,6 +107,7 @@ Require an A/B/C head/middle/tail contact review for:
 - black/white transitions and source heads/tails;
 - repeated emotional shots;
 - user-reported or reviewer-reported cues.
+- any cue with missing UID, non-full-frame crop, menu/archive/reasoning UI, task HUD, unlock notice or capture overlay.
 
 Require explicit `identity_review=verified:<canonical character>` for a named-character selection. OCR or dialogue that merely mentions the character is insufficient.
 
@@ -135,13 +138,17 @@ The JSON below is abridged to show the required top-level bindings and one evide
   "opening_review": {
     "status": "PASS",
     "cue_ids": [1, 2, 3],
-    "range_seconds": [0, 10.2]
+    "range_seconds": [0, 10.0],
+    "continuous_playback": true,
+    "cg_pv_hook_review": "PASS"
   },
   "ending_review": {
     "status": "PASS",
     "cue_ids": [118, 119, 120],
     "range_seconds": [420.0, 432.0]
   },
+  "full_frame_review": {"status": "PASS"},
+  "uid_review": {"status": "PASS"},
   "range_reviews": [
     {"range": "1-4", "status": "PASS"}
   ],
@@ -229,3 +236,5 @@ Before a full render require:
 - opening and ending reviews pass.
 
 After a patch, verify the exact changed frame ranges and prove unchanged ranges still derive from the previous accepted manifest. Always rerun full-duration, frame-count, no-audio, decode, black-event, opening, and ending checks.
+
+The picture renderer must derive timing from integer output frames. Adjacent clips share the same serialized boundary; never compute one clip's end as rounded `start + duration` and the next start independently. Generate `-1/0/+1` boundary sheets for every semantic and chunk boundary, and continuously play the true first 10 seconds, final 10 seconds and any user-reported ranges.
