@@ -6,6 +6,7 @@ Keep one run directory per video. Use stable filenames where practical:
 
 ```text
 request_contract.json
+authority_bundle.json
 verification_plan.json
 run_manifest.json
 timing_contract.json
@@ -141,6 +142,7 @@ Existing project-specific names may be retained; register their paths in `run_ma
 ## Manifest minimum
 
 - title, created time, updated time, current phase, and status;
+- frozen delivery width/height/fps, current authority-bundle path/revision/status, and separate objective/human release states;
 - workspace and Jianying draft name;
 - source manuscript, reference WAV, and reference transcript source;
 - narration directory, immutable SRT snapshot, normalized visual-index manifest, retained candidate pool, current-generation match sheet, review and repair manifests, picture render lineage/report, reference analysis, live opening/middle/ending QA, BGM manifest/master, ledger, and report paths;
@@ -154,13 +156,25 @@ Existing project-specific names may be retained; register their paths in `run_ma
 
 Never store private credentials or browser session tokens in the manifest.
 
+## Authority bundle minimum
+
+For workflow v2.2, keep one `authority_bundle.json` as the only production dependency root. Follow [authority-chain-and-release-gates.md](authority-chain-and-release-gates.md) and record:
+
+- one in-project canonical script path/SHA/status;
+- one independent actual-final narration path/SHA/status, ffprobe-derived duration frame count, the final-master lexical verdict, and the user's pronunciation/full-audio audition verdict;
+- one in-project final SRT path/SHA/status, cue count, quantized final frame, declared tail hold, and user approval verdict;
+- frozen delivery width, height, fps and `target_frame_count`;
+- one row per downstream artifact with file SHA, state, objective status, human status, and bindings back to the same script/audio/SRT hashes and frame contract.
+
+Historical engineering SRTs, ASR-aligned SRTs, old masters and attempts may remain recoverable, but no downstream binding may point to them. Run `scripts/audit_authority_chain.py` without `--allow-provisional` before a target-resolution master. The `--allow-provisional` mode is limited to planning and low-resolution proxy work.
+
 ## HyperFrames render contract minimum
 
 For every new `hyperframes_proxy_gated_v2` run, treat HyperFrames as the required composition, timing, validation, stress-test, proxy-approval, capture, and authored-render entry point. Direct FFmpeg invocation may normalize source proxies, probe media, and perform QA; it must not independently author, assemble, or replace the v2 picture master or any authored/output visual segment. An encoder invoked and controlled by HyperFrames remains part of the HyperFrames render path. Record:
 
 - CLI, Node, Chrome, FFmpeg, and ffprobe versions plus detected hardware encoders;
 - local non-iCloud proxy-cache root; source-SHA/profile-hash cache key, source SHA-256, proxy SHA-256, and contract-bound proxy profile; default `1080p_cfr30_h264_gop30_yuv420p_bt709_v1` parameters (1920×1080/CFR30/H.264/yuv420p/BT.709/GOP≤30) unless the request contract freezes another profile;
-- composition path and SHA-256, proxy-manifest/source-plan/review hashes, timing-contract hash, artifact role, width, height, fps, target frame count, and color policy;
+- authority-bundle revision/SHA, composition path and SHA-256, proxy-manifest/source-plan/review hashes, timing-contract hash, artifact role, frozen width, height, fps, target frame count, and color policy;
 - free bytes before and after, estimated peak bytes, configured minimum reserve, frame-cache path, and selected profile;
 - the exact HyperFrames execution profile used; `hyperframes_static_segment_fallback_v1` is not authorized for a v2 run;
 - exact command arguments, actual encoder, worker count, cache policy, start/end timestamps, exit status, output path, media probe, output SHA-256, and QA evidence;
@@ -179,15 +193,18 @@ Set `artifact_role=jianying_picture_master` for replacement media and require ze
 
 ## Timing contract minimum
 
-Create `timing_contract.json` only after every narration WAV is visible in order on the authoritative Jianying timeline. Generate it from a verified live-state observation with `scripts/freeze_live_timing_contract.py`. Record:
+Create `timing_contract.json` only after the actual final narration is available as a stable independent file, has passed lexical and user-audition release, and is visible in order on the authoritative Jianying timeline. Generate it from a verified live-state observation with `scripts/freeze_live_timing_contract.py`. Record:
 
 - `fps`, `target_frame_count`, `target_seconds`, and `target_timecode`;
 - `clock_source=verified_live_jianying_narration_end`;
 - the source live-observation path and SHA-256, including an independently measured `narration_end_timecode`;
 - the verified narration clip count;
 - source-WAV duration sum and caption final end as diagnostic values when known.
+- authority-bundle revision plus exact final narration and final SRT SHA-256 values.
 
 Do not use a simple sum of WAV durations or the overall project duration as the full-span frame authority. Jianying may quantize each imported clip separately, and picture/BGM media may extend the project beyond narration. If caption cues end before narration, record the remainder as `caption_tail_hold_frames`; if they extend more than one frame beyond narration, reject the contract. Replacing an existing timing contract requires a recoverable timestamped backup.
+
+If the user edits narration after this contract is frozen, preserve the old contract as superseded and invalidate SRT, A/B/C, BGM and every time-bound downstream row. Do not trim the old master to the new end time or keep an old semantic-unit plan while changing only `target_frame_count`.
 
 ## BGM manifest minimum
 
@@ -199,6 +216,8 @@ Write `audio/bgm_manifest.json` before importing BGM. Require `source_mode` with
 - derived chapter `file` under the run directory;
 - intended Jianying gain or automation note;
 - `vocal_content` with one of `instrumental`, `wordless_vocal`, or `lyrics`.
+
+The manifest also binds the current authority-bundle revision, final narration SHA, final SRT SHA, fps and target frame count. An audition mix must use that exact narration file; equal duration or tail trimming is not a valid binding.
 
 Songs with lyrics are eligible BGM; lyric presence alone is not a rejection reason. When `vocal_content` is `lyrics`, also require:
 
@@ -223,12 +242,13 @@ When B or C track is active, record:
 - approved alpha or green-screen mode;
 - composition, asset, build-script and chunk input hashes;
 - boundary audit, chunk receipts, concat receipt, full-decode result and manual review verdict.
+- final fps and target frame count equal to the authority bundle, even when the auxiliary canvas resolution differs from A-track.
 
 No unapproved review asset may appear in the render manifest.
 
 ## Cover minimum
 
-Record one `cover_sources.json` row per official/user asset and one review result per required aspect ratio. Bind each output to its source hashes, local layout source, dimensions and thumbnail preview. A generated background is permitted only as a separate source with its own provenance; an official character layer must remain source-faithful unless the user explicitly approved a transformation.
+Record the one-sentence episode-specific cover promise, then one `cover_sources.json` row per official/user/generated asset with distinct `identity_model`, `shot_camera`, `style_render` or `typography` role. Bind each output to its source hashes, local layout source, dimensions and thumbnail preview. Require a passing 16:9 no-text identity/thesis/same-space review before typography or other ratios; each ratio then receives its own human verdict. A previous episode's composition is style evidence only unless the current promise independently justifies the same shot.
 
 ## Success contract minimum
 
@@ -279,12 +299,13 @@ Let `scripts/harness.py` create and close `H####` rows. Require `unit_count` to 
 Report:
 
 - conclusion and explicit export state;
+- authority-bundle revision/SHA, one current script/audio/SRT path and SHA each, lexical/audition/subtitle approval states, and confirmation that every accepted time-bound descendant uses those hashes;
 - exact timeline duration, resolution, frame rate, picture duration, narration count, caption count, and disabled-caption count;
 - OCR frame count, semantic visual-unit count, three-candidate audit result, strict black-gap result, and stable live replacement filename;
 - source-proxy profile/profile hash, proxy-manifest SHA, local non-iCloud cache location, source/proxy SHA coverage, and proxy-integrity result;
 - canonical SRT cue-clock binding, 4–8 second semantic-unit compliance, normal-pool 8–12 compliance, risk-pool maximum 32, and risk A/B/C coverage;
 - real HyperFrames stress-sample duration, risk/asset-class coverage, decode/black/seam result, and stress-manifest SHA;
-- HyperFrames 720p opening/middle/ending approval evidence and the frozen structure, UID, framing, geometry, typography, motion, and pace decisions;
+- HyperFrames 720p opening/middle/ending objective evidence plus the user's separate approval evidence and the frozen structure, UID, framing, geometry, typography, motion, and pace decisions;
 - target-resolution master count, `semantic_visual_units_v2` render mode, target output SHA, and the single full-master decode/black/seam QA result;
 - for each v2 patch, changed/unchanged chunk IDs, unchanged chunk SHA result, changed-chunk decoded-frame result, adjacent-seam result, assembled-output decode/black/seam result, and explicit confirmation that the accepted base was not subjected to a repeated full decoded-frame hash pass;
 - chapter/BGM plan, Music-folder source paths, vocal-content classification, lyric semantic/intelligibility review when applicable, provenance-check result, and verified live settings;

@@ -5,7 +5,7 @@
 Translate the user's request into one deliverable that can be disproved. Avoid goals such as `make it better`. Prefer claims such as:
 
 ```text
-Deliverable: a saved Jianying draft named X with a 1920×1080 picture-only track,
+Deliverable: a saved Jianying draft named X with a 2560×1440/60fps picture-only track,
 320 preserved captions, zero adjacent duplicate SRT entries, BGM at the verified
 house setting, and a non-black final frame at the stated timecode.
 ```
@@ -31,6 +31,7 @@ Create and close batches only through `scripts/harness.py`. A live action uses t
 
 Use `scripts/run_objective_checks.py` with only these safe check types:
 
+- `authority_chain_integrity`: verify one frozen in-project script, actual-final narration and final SRT; their file hashes, lexical/human release states, delivery width/height/fps/frame count, and every required downstream binding. `allow_provisional=true` is never valid for a target-resolution master.
 - `file_exists`: path exists.
 - `file_nonempty`: regular file exists and has nonzero size.
 - `glob_count`: matching files fall within `min_count` and optional `max_count`.
@@ -105,17 +106,19 @@ For an explicitly authorized generated score, freeze `bgm_policy.source_mode=gen
 
 ## Manual visual gates that objective checks cannot replace
 
+- Obtain the user's explicit verdict on the actual final narration pronunciation/full-audio audition before formal subtitle, A/B/C or BGM release. A producer-authored or machine-authored PASS is not this verdict.
 - Review every B/C asset in the pre-render review bundle, including original source and proposed treatment.
-- Review every HyperFrames boundary contact-sheet page at original detail.
-- Continuously play the real opening 10 seconds, ending 10 seconds and user-named ranges.
+- Review every HyperFrames boundary contact-sheet page at original detail and run the global exact-range reuse, significant-overlap, adjacent-source, source-concentration and black-frame audit.
+- Continuously play the real opening 10 seconds, representative middle and ending 10 seconds, then obtain the user's explicit proxy verdict before a target-resolution render.
 - Compare cover characters and official models directly against frozen sources at both full size and thumbnail size.
 - Record native/source transitions that trigger blackdetect separately from renderer-created empty frames.
 
 ## Gate sequence
 
-1. Run `validate_run.py RUN_DIR --contract-only` before production mutation.
-2. Run `harness.py resume`, prepare and begin exactly one action, then verify or fail that token. For a v2 picture rebuild, do not reorder or skip: local source-SHA/profile-hash proxy normalization → proxy-bound index → 4–8 second semantic-unit match/review on the canonical SRT cue clock → real 30–60 second HyperFrames stress test → HyperFrames 720p opening/middle/ending approval → one target-resolution master → one full master QA → chunk-scoped patch when repair is required.
-3. Seal relevant phase checks and accepted artifact hashes with `harness.py advance` before moving to the next phase.
-4. Do not set `run_manifest.json` status manually. Run `harness.py close`; it performs a two-stage complete/validate commit and restores `in_progress` on failure.
+1. Run `validate_run.py RUN_DIR --contract-only` before production mutation and freeze delivery width/height/fps.
+2. Freeze `authority_bundle.json`, run `authority_chain_integrity` without provisional mode, and stop if script/audio/SRT, lexical/audition states or the target frame contract disagree.
+3. Run `harness.py resume`, prepare and begin exactly one action, then verify or fail that token. For a v2.2 picture rebuild, do not reorder or skip: authority release → local source-SHA/profile-hash proxy normalization → proxy-bound index → chapter source coverage and 4–8 second semantic-unit global match/reuse review on the sole final SRT → real 30–60 second HyperFrames stress test → HyperFrames 720p opening/middle/ending objective checks and explicit user approval → one frozen-resolution target master → one full master QA → chunk-scoped patch when repair is required.
+4. Seal relevant phase checks and accepted artifact hashes with `harness.py advance` before moving to the next phase.
+5. Do not set `run_manifest.json` status manually. Run `harness.py close`; it performs a two-stage complete/validate commit and restores `in_progress` on failure.
 
-Manual review may judge emotion, timbre, composition, or legibility. Record it as supplementary evidence; never let it override a failed objective check.
+Manual review may judge emotion, timbre, composition, semantic matching or legibility. Record it as an independent required status; never let it override a failed objective check, and never let an objective check impersonate human acceptance.

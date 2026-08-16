@@ -1,4 +1,4 @@
 interface:
-  display_name: "障眼法视频全流程"
-  short_description: "从剧情考据、配音字幕到A/B/C轨、BGM、封面与验收的全流程总控"
-  default_prompt: "使用 $zhangyanfa-video-production，按权威版本和分阶段门禁完成考据稿、VoxCPM修音、最终字幕、A/B/C轨、BGM、封面及甲方验收。"
+  display_name: "障眼法视频生产总控"
+  short_description: "唯一音画权威链驱动的考据、配音、轨道、BGM与封面总控"
+  default_prompt: "使用 $zhangyanfa-video-production，先冻结交付规格与唯一脚本/实际口播/最终SRT权威链，再按词级零容忍、用户代理验收、全局复用审计和本期命题封面门完成制作。"

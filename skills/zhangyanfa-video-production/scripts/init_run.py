@@ -81,7 +81,13 @@ def main() -> int:
         default="local_library",
         help="Freeze BGM provenance mode for this run",
     )
+    parser.add_argument("--delivery-width", type=int, default=2560)
+    parser.add_argument("--delivery-height", type=int, default=1440)
+    parser.add_argument("--delivery-fps", type=int, default=60)
     args = parser.parse_args()
+
+    if min(args.delivery_width, args.delivery_height, args.delivery_fps) <= 0:
+        parser.error("delivery width, height and fps must be positive")
 
     root = Path(args.root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -98,6 +104,14 @@ def main() -> int:
             "objective": args.objective,
             "deliverable": args.deliverable,
             "scope": {"in_scope": args.in_scope, "out_of_scope": args.out_of_scope},
+            "delivery_spec": {
+                "width": args.delivery_width,
+                "height": args.delivery_height,
+                "fps": args.delivery_fps,
+                "picture_only": True,
+                "cover_ratios": ["16:9", "4:3", "3:4"],
+                "status": "locked_before_target_render",
+            },
             "bgm_policy": {
                 "source_mode": args.bgm_source_mode,
                 "source_root": MUSIC_SOURCE_ROOT if args.bgm_source_mode == "local_library" else None,
@@ -134,6 +148,7 @@ def main() -> int:
             },
             "success_criteria": criteria,
             "workflow_profiles": {
+                "production_control": "single_authority_bundle_v2_2",
                 "visual_matching": "indexed_bulk_reviewed_v1",
                 "video_rendering": "hyperframes_proxy_gated_v2",
             },
@@ -166,9 +181,52 @@ def main() -> int:
                 ),
                 "the next action needs authority outside the contract",
                 "a live-project mutation cannot be recovered or verified",
+                "authority_chain_integrity is not current before a target-resolution render",
             ],
         }
         contract_path.write_text(json.dumps(contract, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    authority_bundle_path = root / "authority_bundle.json"
+    write_if_missing(
+        authority_bundle_path,
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 0,
+                "status": "provisional",
+                "delivery_spec": {
+                    "width": args.delivery_width,
+                    "height": args.delivery_height,
+                    "fps": args.delivery_fps,
+                    "target_frame_count": None,
+                },
+                "authorities": {
+                    "script": {"path": "", "sha256": "", "status": "provisional"},
+                    "narration": {
+                        "path": "",
+                        "sha256": "",
+                        "status": "provisional",
+                        "duration_frame_count": None,
+                        "lexical_status": "pending",
+                        "human_audition_status": "pending",
+                    },
+                    "subtitle": {
+                        "path": "",
+                        "sha256": "",
+                        "status": "provisional",
+                        "cue_count": None,
+                        "final_end_frame": None,
+                        "caption_tail_hold_frames": None,
+                        "human_approval_status": "pending",
+                    },
+                },
+                "downstream": [],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+    )
 
     visual_check_template = {
         "schema_version": 1,
@@ -179,6 +237,20 @@ def main() -> int:
             "versioned paths before rebind, and keep every required flag."
         ),
         "checks": [
+            {
+                "id": "authority_chain_release_ready",
+                "type": "authority_chain_integrity",
+                "path": "authority_bundle.json",
+                "require_descendants": [],
+                "allow_provisional": False,
+                "observes_mutations": ["offline.artifact"],
+                "observed_targets": [
+                    "authority_bundle.json",
+                    "authorities.script.sha256",
+                    "authorities.narration.sha256",
+                    "authorities.subtitle.sha256",
+                ],
+            },
             {
                 "id": "source_proxy_manifest_current",
                 "type": "source_proxy_manifest_integrity",
@@ -426,6 +498,13 @@ def main() -> int:
         plan = {
             "checks": [
                 {
+                    "id": "authority_bundle_exists",
+                    "type": "file_nonempty",
+                    "path": "authority_bundle.json",
+                    "observes_mutations": ["offline.artifact"],
+                    "observed_targets": ["authority_bundle.json"],
+                },
+                {
                     "id": "request_contract_exists",
                     "type": "file_nonempty",
                     "path": "request_contract.json",
@@ -540,12 +619,14 @@ def main() -> int:
             "bgm_source_mode": args.bgm_source_mode,
             "bgm_source_root": MUSIC_SOURCE_ROOT if args.bgm_source_mode == "local_library" else None,
             "workflow_profiles": {
+                "production_control": "single_authority_bundle_v2_2",
                 "visual_matching": "indexed_bulk_reviewed_v1",
                 "video_rendering": "hyperframes_proxy_gated_v2",
             },
             "export_authorized": False,
             "artifacts": {
                 "request_contract": str(contract_path),
+                "authority_bundle": str(authority_bundle_path),
                 "verification_plan": str(plan_path),
                 "verification_results": str(root / "qa/verification_results.json"),
                 "harness_state": str(root / "harness/state.json"),
@@ -588,6 +669,10 @@ def main() -> int:
         }
     artifacts = manifest.setdefault("artifacts", {})
     manifest.setdefault("workflow_profiles", {}).setdefault(
+        "production_control",
+        "single_authority_bundle_v2_2",
+    )
+    manifest.setdefault("workflow_profiles", {}).setdefault(
         "visual_matching",
         "indexed_bulk_reviewed_v1",
     )
@@ -596,6 +681,7 @@ def main() -> int:
         "hyperframes_proxy_gated_v2",
     )
     artifacts.setdefault("harness_state", str(root / "harness/state.json"))
+    artifacts.setdefault("authority_bundle", str(authority_bundle_path))
     artifacts.setdefault("harness_events", str(root / "harness/events.jsonl"))
     artifacts.setdefault("harness_close_result", str(root / "harness/close_result.json"))
     artifacts.setdefault("bgm_manifest", str(root / "audio/bgm_manifest.json"))

@@ -1,4 +1,4 @@
-# Workflow v2 compatibility contract — 2026-08-14
+# Workflow v2 compatibility contract — through v2.2, 2026-08-17
 
 ## Scope
 
@@ -47,3 +47,22 @@ Unrelated system, plugin, document and football skills are intentionally outside
 - New gates do not authorize silent rewrites of older user-approved files.
 - Local-library BGM remains the default; generated-score mode must be frozen at run initialization.
 - The pre-upgrade snapshot is stored outside the Skill packages at `${CODEX_HOME:-$HOME/.codex}/skill-backups/2026-08-14-workflow-v2-before/`, with a SHA-256 manifest next to it.
+
+## v2.1 additions — 2026-08-15
+
+- Make zero insertion, zero substitution and zero deletion the primary narration gate, including a fresh audit of the actual repaired master and every join.
+- Separate pronunciation-hotspot audition from ASR spelling, and invalidate lexical receipts after any audio mutation.
+- Replace generic cover fidelity with ordered identity, narrative-shot and same-space gates; permit generated full scenes only after explicit user authorization.
+
+## v2.2 additions — 2026-08-17
+
+- Add one `authority_bundle.json` for the frozen delivery spec, canonical script, independent actual-final narration, sole final SRT and every downstream dependency binding.
+- Add executable `authority_chain_integrity`; target-resolution renders fail closed when hashes, human release states, fps/frame count or downstream bindings diverge.
+- Treat any audio edit as an invalidation of lexical receipt, subtitle, timing contract, A/B/C and BGM. Equal duration, tail trimming and final-video embedded audio are not substitutes for the edited source file.
+- Separate objective and user approval states. Machine QA, review-file existence and producer self-approval cannot release pronunciation, A-track proxies, B/C assets, BGM audition or covers.
+- Freeze target delivery at intake; Alan's default is 2560×1440/60fps unless the user overrides it.
+- Require chapter source coverage and whole-timeline reuse/overlap/adjacency/source-concentration/black audits before the 720p A-track proxy gate.
+- Require B/C to share A-track fps and target frame count instead of relying on downstream clipping.
+- Require one episode-specific cover promise and a passing 16:9 no-text identity/thesis/same-space test before typography or other aspect ratios.
+
+Existing accepted v2/v2.1 artifacts remain usable only after a recovery audit identifies their exact script, audio and SRT authorities. If the actual edited narration file is unavailable, mark the run provisional rather than reconstructing authority from matching end times.

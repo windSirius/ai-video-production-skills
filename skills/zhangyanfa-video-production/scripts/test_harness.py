@@ -3537,8 +3537,15 @@ class HarnessTest(unittest.TestCase):
         )
         self.assertEqual(
             len(visual_template.get("checks", [])),
-            9,
+            10,
         )
+        authority_check = next(
+            check
+            for check in visual_template["checks"]
+            if check["id"] == "authority_chain_release_ready"
+        )
+        self.assertEqual(authority_check["type"], "authority_chain_integrity")
+        self.assertIs(authority_check.get("allow_provisional"), False)
         review_check = next(
             check
             for check in visual_template["checks"]

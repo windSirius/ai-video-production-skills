@@ -18,6 +18,7 @@ from typing import Any
 
 
 SUPPORTED_TYPES = {
+    "authority_chain_integrity",
     "file_exists",
     "file_nonempty",
     "glob_count",
@@ -2022,6 +2023,28 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
     check_type = check.get("type")
     if check_type not in SUPPORTED_TYPES:
         return False, f"unsupported check type: {check_type}", {}
+
+    if check_type == "authority_chain_integrity":
+        from audit_authority_chain import audit_authority_bundle
+
+        bundle_path = resolve_path(root, check.get("path", "authority_bundle.json")).resolve()
+        required_descendants = {
+            str(value).strip()
+            for value in check.get("require_descendants", [])
+            if str(value).strip()
+        }
+        result = audit_authority_bundle(
+            root,
+            bundle_path,
+            require_descendants=required_descendants,
+            allow_provisional=bool(check.get("allow_provisional", False)),
+        )
+        message = (
+            "authority chain is current"
+            if result["ok"]
+            else "; ".join(result.get("errors", [])) or "authority chain failed"
+        )
+        return bool(result["ok"]), message, result
 
     if check_type == "glob_count":
         matches = sorted(root.glob(check["pattern"]))

@@ -2,6 +2,8 @@
 
 Use this workflow whenever the pipeline creates a moving-image video asset. HyperFrames must own the composition, frame clock, validation, capture, and output render. FFmpeg may normalize source proxies, probe outputs, and run QA; it may not author or replace the picture master.
 
+Before source normalization or any formal render, load `authority_bundle.json`. Planning and low-resolution proxies may use an explicitly provisional bundle; a target-resolution A/B/C master requires `scripts/audit_authority_chain.py RUN_DIR` to pass without provisional mode. Bind its revision and SHA into every render lineage.
+
 ## 1. Normalize and cache render sources
 
 1. Assign every original source a stable source ID and SHA-256 before deriving media.
@@ -22,6 +24,7 @@ This source gate prevents sparse-keyframe, mixed-frame-rate, and decoder-activat
    - `hyperframes_chunked_videotoolbox_v1`: normal macOS path.
    - `hyperframes_low_disk_stream_v1`: HyperFrames capture/encode with persistent frame cache disabled.
 5. Stop if HyperFrames is missing or cannot validate the composition. Do not silently render through an unrelated path.
+6. Read target width, height and fps from the locked delivery spec. Alan's current default is 2560×1440/60fps, not an inferred 1080p fallback; changing these values invalidates target-resolution proxies and masters.
 
 ## 3. Author by semantic visual unit
 
@@ -30,6 +33,7 @@ This source gate prevents sparse-keyframe, mixed-frame-rate, and decoder-activat
 - Derive width, height, fps, duration, and every segment boundary from `timing_contract.json` and the reviewed semantic-unit match sheet.
 - Treat caption cues only as immutable clock mappings within semantic visual units. A cue boundary must not by itself restart source decoding, reactivate an asset, or create a render segment.
 - Write `hyperframes/render_plan.json` with ordered integer `start_frame`, `frame_count`, semantic-unit ID, covered cue IDs, source/proxy identity and range, motion treatment, and transition fields. Require complete cue and frame coverage with no overlap or gap unless the transition explicitly owns the overlap.
+- Before composition freeze, require a chapter source-coverage matrix and a whole-plan audit of exact-range reuse, significant overlap, adjacent same-source runs, source concentration, black hazards and opening/ending shot budgets. Per-row candidate quality cannot substitute for this global pass.
 - Prefer visual holds or source continuity across adjacent cues in the same semantic beat. Create a new source activation only for an intentional visual cut.
 - Use the HyperFrames virtual frame clock for animation. Do not drive render-visible motion from wall time, random values, network state, or an unpinned browser session.
 - Distinguish `jianying_picture_master`, `standalone_preview`, and `authorized_final_export` before authoring caption or audio layers.
@@ -62,13 +66,13 @@ Do not start aesthetic proxies or the full-length production render until this g
 1. Render the opening, ending, and at least one representative middle interval at 720p through HyperFrames after the stress gate passes.
 2. Preserve the production timing, semantic-unit boundaries, motion, transitions, and crop decisions. Lower only the spatial resolution or review bitrate.
 3. Review the opening for hook and evidence timing, the middle for continuity and sustainable cadence, and the ending for emotional release and final-image function.
-4. Record explicit approval or the exact semantic units to repair. Repair and rerender only the affected 720p intervals until approved.
+4. Record objective proxy checks and the user's explicit creative verdict as separate fields. A machine, producer agent or the existence of a review manifest cannot set the user verdict. Repair and rerender only the affected 720p intervals until both statuses pass.
 
 Use these proxies for aesthetic iteration. Do not create a full-length target-resolution render to solicit ordinary creative feedback.
 
 ## 7. Perform one planned target-resolution production render
 
-Start one full-length render at the contract target resolution, normally 1080p, only after the stress and aesthetic gates pass. Align chunks to semantic-unit boundaries and normally group enough adjacent units for roughly 30–60 seconds per chunk; do not create one chunk per caption cue. A retry is allowed only after an objective technical failure and recorded repair, never as the default aesthetic-review loop.
+Start one full-length render at the frozen contract target resolution only after the authority-chain, stress, global reuse/black and user aesthetic gates pass. Align chunks to semantic-unit boundaries and normally group enough adjacent units for roughly 30–60 seconds per chunk; do not create one chunk per caption cue. A retry is allowed only after an objective technical failure and recorded repair, never as the default aesthetic-review loop or a way to discover hook/reuse problems.
 
 ### Normal macOS path
 
@@ -100,6 +104,7 @@ Start one full-length render at the contract target resolution, normally 1080p, 
 
 ### Auxiliary B/C-track branch
 
+- Derive fps and exact target frame count from the same authority bundle as A-track. A longer old-clock green/alpha master that will merely be clipped in Jianying is not a passing formal B/C deliverable.
 - Bind B/C HTML, every still/silhouette/icon, CSS and build script to the chunk input fingerprint.
 - Keep evidence pages fully visible long enough to read. Adjacent pages normally hard-cut; a transition may fade only when their opacity curves overlap or a persistent non-empty background remains.
 - Produce `alpha_master` only when downstream alpha handling is verified. If transparency becomes black in the editor, retain the alpha source project and render a separate `green_screen_master` with a uniform pure-green composition background.
