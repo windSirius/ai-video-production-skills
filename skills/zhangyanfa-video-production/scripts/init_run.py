@@ -11,6 +11,9 @@ from pathlib import Path
 
 
 SUBDIRS = (
+    "approvals",
+    "research",
+    "script",
     "narration",
     "captions",
     "hyperframes/project",
@@ -45,6 +48,8 @@ MUSIC_SOURCE_ROOT = str(
 SOURCE_PROXY_CACHE_ROOT = str(
     (Path.home() / "Movies" / "AI-Video-Source-Proxies").resolve()
 )
+WORKFLOW_V3_PROFILE = "artifact_bound_release_v3"
+LEGACY_PRODUCTION_PROFILE = "single_authority_bundle_v2_2"
 
 
 def write_if_missing(path: Path, text: str) -> None:
@@ -147,8 +152,32 @@ def main() -> int:
                 },
             },
             "success_criteria": criteria,
+            "approval_policy": {
+                "profile": "artifact_bound_approval_v1",
+                "ledger_path": "approvals/approval_ledger.jsonl",
+                "work_authorization_cannot_release_unseen_artifacts": True,
+                "require_artifact_sha256": True,
+                "require_artifact_created_before_showing": True,
+                "require_showing_before_approval": True,
+                "require_exact_user_quote": True,
+            },
+            "creative_release_policy": {
+                "require_research_counterevidence": True,
+                "require_whole_document_script_qa": True,
+                "require_voice_lexical_and_prosody_gates": True,
+                "minimum_a_direct_plus_strong_ratio": 0.80,
+                "minimum_a_plus_b_ratio": 0.90,
+                "maximum_consecutive_visual_family": 3,
+                "require_cross_episode_reuse_ledger": True,
+                "require_full_length_720p_proxy": True,
+                "full_length_proxy_requires_frozen_narration": True,
+                "require_bgm_human_audition": True,
+                "require_artifact_bound_bgm_review": True,
+                "require_deterministic_exact_subject_cover_assets": True,
+                "require_artifact_bound_cover_review": True,
+            },
             "workflow_profiles": {
-                "production_control": "single_authority_bundle_v2_2",
+                "production_control": "artifact_bound_release_v3",
                 "visual_matching": "indexed_bulk_reviewed_v1",
                 "video_rendering": "hyperframes_proxy_gated_v2",
             },
@@ -182,9 +211,20 @@ def main() -> int:
                 "the next action needs authority outside the contract",
                 "a live-project mutation cannot be recovered or verified",
                 "authority_chain_integrity is not current before a target-resolution render",
+                "workflow_v3_release_integrity is not current before a target-resolution render",
             ],
         }
         contract_path.write_text(json.dumps(contract, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    # Never infer a v3 migration merely because init_run.py is newer than the
+    # run being resumed.  Existing runs inherit the profile frozen in their
+    # request contract; contracts that predate production_control remain v2.2
+    # until an explicit migration rewrites the contract and verification plan.
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract_production_profile = (
+        contract.get("workflow_profiles", {}).get("production_control")
+        or LEGACY_PRODUCTION_PROFILE
+    )
 
     authority_bundle_path = root / "authority_bundle.json"
     write_if_missing(
@@ -209,6 +249,9 @@ def main() -> int:
                         "duration_frame_count": None,
                         "lexical_status": "pending",
                         "human_audition_status": "pending",
+                        "pronunciation_hotspots_status": "pending",
+                        "prosody_status": "pending",
+                        "full_length_audition_status": "pending",
                     },
                     "subtitle": {
                         "path": "",
@@ -237,6 +280,30 @@ def main() -> int:
             "versioned paths before rebind, and keep every required flag."
         ),
         "checks": [
+            {
+                "id": "workflow_v3_pre_render_release",
+                "type": "workflow_v3_release_integrity",
+                "stage": "pre-render",
+                "observes_mutations": ["offline.picture.aesthetic_proxy"],
+                "observed_targets": [
+                    "authority_bundle.json",
+                    "approvals/approval_ledger.jsonl",
+                    "research/evidence_matrix.tsv",
+                    "script/script_qa.json",
+                    "narration/voice_release.json",
+                    "visuals/semantic_coverage_qa.json",
+                    "visuals/reuse_qa.json",
+                    "visuals/match_sheet.tsv",
+                    "visuals/review_manifest.json",
+                    "tracks/review_manifest.json",
+                    "visuals/static_asset_review_bundle.json",
+                    "hyperframes/composition.json",
+                    "hyperframes/render_plan.json",
+                    "hyperframes/stress/stress_manifest.json",
+                    "hyperframes/proxy/aesthetic_proxy_720p.mp4",
+                    "visuals/aesthetic_review/approval.json"
+                ],
+            },
             {
                 "id": "authority_chain_release_ready",
                 "type": "authority_chain_integrity",
@@ -413,6 +480,9 @@ def main() -> int:
                 "required_engine": "hyperframes",
                 "expected_width": 1280,
                 "expected_height": 720,
+                "require_full_timeline": True,
+                "authority_bundle_path": "authority_bundle.json",
+                "require_workflow_v3_release": True,
                 "require_opening_review": True,
                 "require_middle_review": True,
                 "require_ending_review": True,
@@ -488,6 +558,12 @@ def main() -> int:
             },
         ],
     }
+    if contract_production_profile != WORKFLOW_V3_PROFILE:
+        visual_check_template["checks"] = [
+            check
+            for check in visual_check_template["checks"]
+            if check.get("type") != "workflow_v3_release_integrity"
+        ]
     write_if_missing(
         root / "visuals/indexed_bulk_checks.template.json",
         json.dumps(visual_check_template, ensure_ascii=False, indent=2) + "\n",
@@ -503,6 +579,34 @@ def main() -> int:
                     "path": "authority_bundle.json",
                     "observes_mutations": ["offline.artifact"],
                     "observed_targets": ["authority_bundle.json"],
+                },
+                {
+                    "id": "workflow_v3_seal_release",
+                    "type": "workflow_v3_release_integrity",
+                    "stage": "seal",
+                    "required": True,
+                    "observes_mutations": ["offline.artifact"],
+                    "observed_targets": [
+                        "CURRENT.json",
+                        "authority_bundle.json",
+                        "approvals/approval_ledger.jsonl",
+                        "research/evidence_matrix.tsv",
+                        "script/script_qa.json",
+                        "narration/voice_release.json",
+                        "visuals/semantic_coverage_qa.json",
+                        "visuals/reuse_qa.json",
+                        "visuals/match_sheet.tsv",
+                        "visuals/review_manifest.json",
+                        "tracks/review_manifest.json",
+                        "visuals/static_asset_review_bundle.json",
+                        "hyperframes/composition.json",
+                        "hyperframes/render_plan.json",
+                        "hyperframes/stress/stress_manifest.json",
+                        "hyperframes/proxy/aesthetic_proxy_720p.mp4",
+                        "visuals/aesthetic_review/approval.json",
+                        "audio/bgm_manifest.json",
+                        "cover/review_manifest.json"
+                    ],
                 },
                 {
                     "id": "request_contract_exists",
@@ -599,6 +703,12 @@ def main() -> int:
                 },
             ]
         }
+        if contract_production_profile != WORKFLOW_V3_PROFILE:
+            plan["checks"] = [
+                check
+                for check in plan["checks"]
+                if check.get("type") != "workflow_v3_release_integrity"
+            ]
         plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     manifest_path = root / "run_manifest.json"
@@ -619,7 +729,7 @@ def main() -> int:
             "bgm_source_mode": args.bgm_source_mode,
             "bgm_source_root": MUSIC_SOURCE_ROOT if args.bgm_source_mode == "local_library" else None,
             "workflow_profiles": {
-                "production_control": "single_authority_bundle_v2_2",
+                "production_control": "artifact_bound_release_v3",
                 "visual_matching": "indexed_bulk_reviewed_v1",
                 "video_rendering": "hyperframes_proxy_gated_v2",
             },
@@ -627,6 +737,18 @@ def main() -> int:
             "artifacts": {
                 "request_contract": str(contract_path),
                 "authority_bundle": str(authority_bundle_path),
+                "approval_ledger": str(root / "approvals/approval_ledger.jsonl"),
+                "research_evidence_matrix": str(root / "research/evidence_matrix.tsv"),
+                "script_qa": str(root / "script/script_qa.json"),
+                "voice_release": str(root / "narration/voice_release.json"),
+                "semantic_coverage_qa": str(root / "visuals/semantic_coverage_qa.json"),
+                "visual_reuse_qa": str(root / "visuals/reuse_qa.json"),
+                "static_asset_review_bundle": str(root / "visuals/static_asset_review_bundle.json"),
+                "b_review_manifest": str(root / "tracks/review_manifest.json"),
+                "full_review_proxy": str(root / "hyperframes/proxy/aesthetic_proxy_720p.mp4"),
+                "full_review_approval": str(root / "visuals/aesthetic_review/approval.json"),
+                "cover_review_manifest": str(root / "cover/review_manifest.json"),
+                "current_pointer": str(root / "CURRENT.json"),
                 "verification_plan": str(plan_path),
                 "verification_results": str(root / "qa/verification_results.json"),
                 "harness_state": str(root / "harness/state.json"),
@@ -641,8 +763,8 @@ def main() -> int:
                 "indexed_visual_check_template": str(
                     root / "visuals/indexed_bulk_checks.template.json"
                 ),
-                "match_sheet": "",
-                "visual_review_manifest": "",
+                "match_sheet": str(root / "visuals/match_sheet.tsv"),
+                "visual_review_manifest": str(root / "visuals/review_manifest.json"),
                 "picture_render_manifest": "",
                 "picture_render": "",
                 "picture_patch_manifest": "",
@@ -654,6 +776,7 @@ def main() -> int:
                     root / "visuals/aesthetic_review/approval.json"
                 ),
                 "hyperframes_project": str(root / "hyperframes/project"),
+                "hyperframes_composition": str(root / "hyperframes/composition.json"),
                 "hyperframes_environment": str(root / "hyperframes/environment.json"),
                 "hyperframes_render_plan": str(root / "hyperframes/render_plan.json"),
                 "hyperframes_check_result": str(root / "hyperframes/check_result.json"),
@@ -670,7 +793,7 @@ def main() -> int:
     artifacts = manifest.setdefault("artifacts", {})
     manifest.setdefault("workflow_profiles", {}).setdefault(
         "production_control",
-        "single_authority_bundle_v2_2",
+        contract_production_profile,
     )
     manifest.setdefault("workflow_profiles", {}).setdefault(
         "visual_matching",
@@ -682,6 +805,25 @@ def main() -> int:
     )
     artifacts.setdefault("harness_state", str(root / "harness/state.json"))
     artifacts.setdefault("authority_bundle", str(authority_bundle_path))
+    effective_production_profile = manifest["workflow_profiles"]["production_control"]
+    if effective_production_profile == WORKFLOW_V3_PROFILE:
+        artifacts.setdefault("approval_ledger", str(root / "approvals/approval_ledger.jsonl"))
+        artifacts.setdefault("research_evidence_matrix", str(root / "research/evidence_matrix.tsv"))
+        artifacts.setdefault("script_qa", str(root / "script/script_qa.json"))
+        artifacts.setdefault("voice_release", str(root / "narration/voice_release.json"))
+        artifacts.setdefault("semantic_coverage_qa", str(root / "visuals/semantic_coverage_qa.json"))
+        artifacts.setdefault("visual_reuse_qa", str(root / "visuals/reuse_qa.json"))
+        artifacts.setdefault("static_asset_review_bundle", str(root / "visuals/static_asset_review_bundle.json"))
+        artifacts.setdefault("b_review_manifest", str(root / "tracks/review_manifest.json"))
+        artifacts.setdefault("full_review_proxy", str(root / "hyperframes/proxy/aesthetic_proxy_720p.mp4"))
+        artifacts.setdefault("full_review_approval", str(root / "visuals/aesthetic_review/approval.json"))
+        artifacts.setdefault("cover_review_manifest", str(root / "cover/review_manifest.json"))
+        artifacts.setdefault("current_pointer", str(root / "CURRENT.json"))
+        artifacts["match_sheet"] = artifacts.get("match_sheet") or str(root / "visuals/match_sheet.tsv")
+        artifacts["visual_review_manifest"] = artifacts.get("visual_review_manifest") or str(
+            root / "visuals/review_manifest.json"
+        )
+        artifacts.setdefault("hyperframes_composition", str(root / "hyperframes/composition.json"))
     artifacts.setdefault("harness_events", str(root / "harness/events.jsonl"))
     artifacts.setdefault("harness_close_result", str(root / "harness/close_result.json"))
     artifacts.setdefault("bgm_manifest", str(root / "audio/bgm_manifest.json"))
@@ -719,6 +861,108 @@ def main() -> int:
         root / "edit_ledger.tsv",
         "priority\tcategory\tfeedback\ttimeline_range\tplanned_edit\tassets\tacceptance_test\tstatus\n",
     )
+    if effective_production_profile == WORKFLOW_V3_PROFILE:
+        write_if_missing(root / "approvals/approval_ledger.jsonl", "")
+        write_if_missing(
+            root / "research/evidence_matrix.tsv",
+            (
+                "claim_id\tclaim_level\tclaim_text\tgame_evidence\treal_prototype\t"
+                "narrative_function\tinternal_cross_validation\tcounterevidence\t"
+                "confidence\tsource_refs\tstatus\n"
+            ),
+        )
+        write_if_missing(
+            root / "script/script_qa.json",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "pending",
+                    "script_sha256": "",
+                    "structure_pass": False,
+                    "evidence_pass": False,
+                    "chinese_oral_pass": False,
+                    "anti_calque_pass": False,
+                    "persona_pass": False,
+                    "entity_pronoun_pass": False,
+                    "read_aloud_pass": False,
+                    "human_status": "pending",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+        )
+        write_if_missing(
+            root / "narration/voice_release.json",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "pending",
+                    "narration_path": "",
+                    "narration_sha256": "",
+                    "master_lexical_receipt_sha256": "",
+                    "lexical_status": "pending",
+                    "pronunciation_status": "pending",
+                    "prosody_status": "pending",
+                    "punctuation_topology": "pending",
+                    "micro_splice_used": False,
+                    "full_length_audition_status": "pending",
+                    "approval_ledger_id": "",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+        )
+        write_if_missing(
+            root / "visuals/semantic_coverage_qa.json",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "pending",
+                    "unresolved_units": None,
+                    "opening_gate": {"cg_like_only": False},
+                    "a_track_semantic_rubric": {"direct_plus_strong_ratio": 0},
+                    "composite_a_plus_b_rubric": {"ratio": 0},
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+        )
+        write_if_missing(
+            root / "visuals/reuse_qa.json",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "pending",
+                    "visual_family_ids_complete": False,
+                    "max_consecutive_same_visual_family": None,
+                    "unresolved_overlap_count": None,
+                    "cross_episode_cooldown_violations": None,
+                    "exceptions": [],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+        )
+        write_if_missing(
+            root / "CURRENT.json",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "workflow_profile": WORKFLOW_V3_PROFILE,
+                    "revision": 0,
+                    "status": "provisional",
+                    "updated_at": now,
+                    "artifacts": {},
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+        )
     write_if_missing(
         root / "batch_ledger.tsv",
         "batch_id\tphase\tassumption\tscope\tmutation\tunit_limit_key\tunit_count\tcheck_id\texpected\tmeasured\tstatus\tevidence\twaiver_reason\tsuperseded_by\topened_at\tclosed_at\n",

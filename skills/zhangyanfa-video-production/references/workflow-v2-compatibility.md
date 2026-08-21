@@ -1,4 +1,4 @@
-# Workflow v2 compatibility contract — through v2.2, 2026-08-17
+# Workflow compatibility contract — v2 through v3, 2026-08-21
 
 ## Scope
 
@@ -66,3 +66,20 @@ Unrelated system, plugin, document and football skills are intentionally outside
 - Require one episode-specific cover promise and a passing 16:9 no-text identity/thesis/same-space test before typography or other aspect ratios.
 
 Existing accepted v2/v2.1 artifacts remain usable only after a recovery audit identifies their exact script, audio and SRT authorities. If the actual edited narration file is unavailable, mark the run provisional rather than reconstructing authority from matching end times.
+
+## v3 additions — 2026-08-21
+
+Workflow v3 is based on four completed 至冬考据 episodes and changes production control from `single_authority_bundle_v2_2` to `artifact_bound_release_v3` for new runs. It adds:
+
+- an append-only approval ledger that distinguishes permission to work, script/audio freeze, static-asset review and full-proxy render authorization; target render requires all three artifact approvals, not merely the last one;
+- timestamp/hash checks that prohibit unseen artifacts from being retrospectively approved by a broad task instruction;
+- a core-claim evidence matrix with game text, real prototype, narrative function, internal cross-validation, counterevidence and confidence;
+- whole-document structure/Chinese/persona/pronoun/read-aloud QA instead of line-by-line replacement;
+- separate lexical, P1-pronunciation, prosody and full-length-audition voice gates, with P2 minor pronunciation warnings allowed;
+- A direct+strong≥80%, A+B≥90%, CG/PV-like 0–10 second hook, visual-family reuse and cross-episode cooldown checks;
+- one full-length 720p continuous A/A+B proxy with frozen narration and artifact-bound user approval before 2K60 render;
+- BGM four-checkpoint human audition and deterministic official-foreground routing for exact cover subjects such as weapons/UI;
+- one root `CURRENT.json` that supersedes stale PASS reports and identifies the sole current delivery set;
+- executable `audit_workflow_v3.py` and `workflow_v3_release_integrity` checks.
+
+Migration is explicit. Do not rewrite an accepted v2/v2.2 manifest in place merely to satisfy v3. First preserve existing hashes and approvals, identify actual current script/audio/SRT, then create v3 research/script/audio/visual/proxy artifacts. A legacy approval lacking artifact SHA, display time and exact user quote remains historical context, not a v3 release gate.

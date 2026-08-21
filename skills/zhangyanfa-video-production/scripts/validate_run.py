@@ -33,6 +33,28 @@ REQUIRED_ARTIFACT_KEYS = (
 MUSIC_SOURCE_ROOT = str(
     Path(os.environ.get("AI_VIDEO_MUSIC_ROOT") or (Path.home() / "Music")).expanduser().resolve()
 )
+PRODUCTION_CONTROL_V3_PROFILE = "artifact_bound_release_v3"
+V3_REQUIRED_ARTIFACT_KEYS = (
+    "authority_bundle",
+    "approval_ledger",
+    "research_evidence_matrix",
+    "script_qa",
+    "voice_release",
+    "semantic_coverage_qa",
+    "visual_reuse_qa",
+    "match_sheet",
+    "visual_review_manifest",
+    "b_review_manifest",
+    "static_asset_review_bundle",
+    "hyperframes_composition",
+    "hyperframes_render_plan",
+    "hyperframes_stress_manifest",
+    "full_review_proxy",
+    "full_review_approval",
+    "bgm_manifest",
+    "cover_review_manifest",
+    "current_pointer",
+)
 VISUAL_WORKFLOW_RULES = {
     "offline.visual.source_proxy": (
         "source_proxy_manifests_per_batch",
@@ -144,6 +166,51 @@ def validate_contract(contract: dict, plan: dict, errors: list[str]) -> None:
         if bgm_policy.get("allow_generated_sources") is not True:
             errors.append("generated_score mode must allow generated BGM sources")
     video_profile = contract.get("workflow_profiles", {}).get("video_rendering")
+    production_profile = contract.get("workflow_profiles", {}).get("production_control")
+    if production_profile == PRODUCTION_CONTROL_V3_PROFILE:
+        approval = contract.get("approval_policy", {})
+        creative = contract.get("creative_release_policy", {})
+        for field in (
+            "work_authorization_cannot_release_unseen_artifacts",
+            "require_artifact_sha256",
+            "require_artifact_created_before_showing",
+            "require_showing_before_approval",
+            "require_exact_user_quote",
+        ):
+            if approval.get(field) is not True:
+                errors.append(f"workflow v3 approval_policy.{field} must be true")
+        required_creative = (
+            "require_research_counterevidence",
+            "require_whole_document_script_qa",
+            "require_voice_lexical_and_prosody_gates",
+            "require_cross_episode_reuse_ledger",
+            "require_full_length_720p_proxy",
+            "full_length_proxy_requires_frozen_narration",
+            "require_bgm_human_audition",
+            "require_artifact_bound_bgm_review",
+            "require_deterministic_exact_subject_cover_assets",
+            "require_artifact_bound_cover_review",
+        )
+        for field in required_creative:
+            if creative.get(field) is not True:
+                errors.append(f"workflow v3 creative_release_policy.{field} must be true")
+        if float(creative.get("minimum_a_direct_plus_strong_ratio", 0)) < 0.80:
+            errors.append("workflow v3 A direct+strong threshold must be >=0.80")
+        if float(creative.get("minimum_a_plus_b_ratio", 0)) < 0.90:
+            errors.append("workflow v3 A+B threshold must be >=0.90")
+        if int(creative.get("maximum_consecutive_visual_family", 999)) > 3:
+            errors.append("workflow v3 visual-family streak threshold must be <=3")
+        v3_check = next(
+            (
+                check
+                for check in checks
+                if check.get("type") == "workflow_v3_release_integrity"
+                and check.get("stage") == "seal"
+            ),
+            None,
+        )
+        if not v3_check or v3_check.get("required") is not True:
+            errors.append("workflow v3 verification plan requires a required seal check")
     if video_profile == VIDEO_RENDERING_V2_PROFILE:
         source_proxy = contract.get("render_policy", {}).get("source_proxy", {})
         required_proxy_fields = {
@@ -445,7 +512,10 @@ def main() -> int:
         return 0
 
     artifacts = manifest.get("artifacts", {}) if isinstance(manifest, dict) else {}
-    for key in REQUIRED_ARTIFACT_KEYS:
+    required_artifacts = list(REQUIRED_ARTIFACT_KEYS)
+    if contract.get("workflow_profiles", {}).get("production_control") == PRODUCTION_CONTROL_V3_PROFILE:
+        required_artifacts.extend(V3_REQUIRED_ARTIFACT_KEYS)
+    for key in required_artifacts:
         value = artifacts.get(key)
         if not value:
             errors.append(f"manifest artifact missing path: {key}")
