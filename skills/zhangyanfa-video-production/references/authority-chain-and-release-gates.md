@@ -13,7 +13,7 @@
 
 ## 1. 核心原则
 
-每期只能有一份当前脚本文本、一份实际最终口播文件和一份最终 SRT。工程字幕、ASR 对齐字幕、交付字幕或用户改时字幕可以保留为历史，但只有 `authority_bundle.json` 指向的文件能够驱动 A/B/C、BGM 和最终导出。
+每期只能有一份当前脚本文本、一份实际最终口播文件和一份最终 SRT。工程字幕、ASR 对齐字幕、交付字幕或用户改时字幕可以保留为历史，但只有 `authority_bundle.json` 指向的文件能够驱动 A/B/C、BGM 和最终导出。Workflow v3 另外以 `approvals/approval_ledger.jsonl` 记录不可伪造的人工决定，以根目录 `CURRENT.json` 作为交付后的唯一当前入口。
 
 “结束时间相同”不能证明“时间轴相同”。把旧860秒口播裁到855秒，不等于使用了用户修改后的855秒口播；把按旧字幕选出的画面截到新帧数，也不等于重新绑定新字幕。
 
@@ -53,7 +53,10 @@
       "status": "frozen",
       "duration_frame_count": 1,
       "lexical_status": "pass",
-      "human_audition_status": "pass"
+      "human_audition_status": "pass",
+      "pronunciation_hotspots_status": "pass",
+      "prosody_status": "pass",
+      "full_length_audition_status": "pass"
     },
     "subtitle": {
       "path": "captions/final.srt",
@@ -73,14 +76,15 @@
 
 ## 4. 冻结顺序
 
-1. 冻结交付规格和脚本。
-2. 生成并修复配音，对实际最终母带重做词级审计。
-3. 用户试听专名热点和完整母带；未试听只能标记 `provisional`。
-4. 从这份实际最终口播产生并确认唯一最终 SRT。
-5. 运行权威链检查，冻结 revision。
-6. 冻结素材覆盖矩阵、A轨候选和 B/C 审核包。
-7. 只做压力样片和开头/正文/结尾代理。
-8. 用户通过创意代理后，才做正式长渲染。
+1. 冻结交付规格、审批语义和研究证据矩阵。
+2. 全文结构/中文/朗读 QA 通过后冻结脚本。
+3. 生成并修复配音，对实际最终母带重做词级审计、P1读音和连贯性审计。
+4. 用户试听专名热点和完整母带；未试听只能标记 `provisional`。
+5. 从这份实际最终口播产生并确认唯一最终 SRT。
+6. 运行权威链检查，冻结 revision。
+7. 冻结素材覆盖矩阵、A轨候选、视觉家族复用和 B/C 审核包。
+8. 先做压力样片，再生成覆盖完整时间轴并带冻结口播的720p A/B代理。
+9. 用户对该代理 SHA 明确通过后，才做正式长渲染。
 
 如果用户明确要求在试听前继续，可继续做素材研究、证据卡和低清代理，但必须标记为 `provisional`，不得宣称正式母带或让临时结果进入最终整合。
 
@@ -106,6 +110,10 @@
 
 机器不得给自己签发创意通过。代理文件存在、接触表存在或自动脚本返回 PASS，都不能替代用户对指定代理的明确接受。
 
+Workflow v3 的人工通过必须记录在 `approval_ledger.jsonl`。`work_authorization` 只扩展允许执行的工作，不释放创意产物。稿件/音频、静态资产和全长动态代理的通过必须分别以 `script_audio_freeze`、`static_asset_review`、`full_proxy_render_authorization` 记录，绑定 artifact path/SHA、artifact_created_at、shown_at、approved_at、用户准确原话与批准范围，并满足生成在先、展示其次、批准最后。前两项分别以当前 `authority_bundle.json` 和 `visuals/static_asset_review_bundle.json` 为 artifact；只有三项全部当前，最后一项才可以授权目标分辨率正式渲染。
+
+交付封存时，用户实际听过的BGM试听混音另用 `bgm_mix_review` 绑定，最终16:9封面另用 `cover_review` 绑定；`CURRENT.json` 的 BGM master/封面 SHA 必须与各自 review manifest 一致。
+
 ## 7. 正式长渲染前检查
 
 运行：
@@ -113,6 +121,10 @@
 ```bash
 python3 scripts/audit_authority_chain.py RUN_DIR \
   --output qa/authority_chain_pre_render.json
+
+python3 scripts/audit_workflow_v3.py RUN_DIR \
+  --stage pre-render \
+  --output qa/workflow_v3_pre_render.json
 ```
 
 只有无 `--allow-provisional` 的结果为 `ok=true`，才能开始目标分辨率长渲染。代理规划可显式使用 `--allow-provisional`，但该结果必须带警告，不能用于正式母带授权。
@@ -121,4 +133,4 @@ python3 scripts/audit_authority_chain.py RUN_DIR \
 
 ## 8. 恢复旧项目
 
-旧项目没有权威包时，不根据文件名猜最新版本。先盘点所有脚本、音频和 SRT，向用户确认实际使用版本，再建立 revision 1。若无法取得用户修改后的独立口播，只能标记 `provisional`；不能用旧母带裁尾冒充当前权威。
+旧项目没有权威包时，不根据文件名猜最新版本。先盘点所有脚本、音频和 SRT，向用户确认实际使用版本，再建立 revision 1。若无法取得用户修改后的独立口播，只能标记 `provisional`；不能用旧母带裁尾冒充当前权威。旧聊天里的广义制作授权没有 artifact SHA、展示时间和准确批准原话时，只能作为历史备注，不能迁移成 v3 人工释放状态。

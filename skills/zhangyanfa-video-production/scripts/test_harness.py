@@ -3537,8 +3537,15 @@ class HarnessTest(unittest.TestCase):
         )
         self.assertEqual(
             len(visual_template.get("checks", [])),
-            10,
+            11,
         )
+        workflow_v3_check = next(
+            check
+            for check in visual_template["checks"]
+            if check["id"] == "workflow_v3_pre_render_release"
+        )
+        self.assertEqual(workflow_v3_check["type"], "workflow_v3_release_integrity")
+        self.assertEqual(workflow_v3_check["stage"], "pre-render")
         authority_check = next(
             check
             for check in visual_template["checks"]

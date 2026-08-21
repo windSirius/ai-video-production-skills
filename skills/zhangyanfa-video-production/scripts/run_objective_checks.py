@@ -19,6 +19,7 @@ from typing import Any
 
 SUPPORTED_TYPES = {
     "authority_chain_integrity",
+    "workflow_v3_release_integrity",
     "file_exists",
     "file_nonempty",
     "glob_count",
@@ -2046,6 +2047,24 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
         )
         return bool(result["ok"]), message, result
 
+    if check_type == "workflow_v3_release_integrity":
+        from audit_workflow_v3 import run_audit
+
+        stage = str(check.get("stage", "pre-render")).strip().lower()
+        if stage not in {"pre-render", "seal"}:
+            return False, f"unsupported workflow v3 stage: {stage}", {"stage": stage}
+        result = run_audit(root, stage)
+        message = (
+            f"workflow v3 {stage} gates are current"
+            if result["ok"]
+            else "; ".join(
+                f"{row['id']}: {row['detail']}"
+                for row in result.get("checks", [])
+                if not row.get("pass")
+            )
+        )
+        return bool(result["ok"]), message, result
+
     if check_type == "glob_count":
         matches = sorted(root.glob(check["pattern"]))
         count = len(matches)
@@ -2682,9 +2701,11 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                 failures.append(
                     f"aesthetic approval points to a stress test with stale {label} SHA"
                 )
-        probe = ffprobe_json(proxy_path)
+        full_timeline = bool(check.get("require_full_timeline", False))
+        probe = ffprobe_json(proxy_path, count_frames=full_timeline)
         streams = probe.get("streams", [])
         videos = [item for item in streams if item.get("codec_type") == "video"]
+        audios = [item for item in streams if item.get("codec_type") == "audio"]
         video = videos[0] if videos else {}
         width = int(video.get("width", 0) or 0)
         height = int(video.get("height", 0) or 0)
@@ -2692,8 +2713,65 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             failures.append(f"aesthetic proxy width={width}")
         if height != int(check.get("expected_height", 720)):
             failures.append(f"aesthetic proxy height={height}")
-        if len(videos) != 1 or any(item.get("codec_type") == "audio" for item in streams):
-            failures.append("aesthetic proxy must contain one video stream and no audio")
+        if len(videos) != 1:
+            failures.append("aesthetic proxy must contain exactly one video stream")
+        if full_timeline:
+            authority_path = resolve_path(
+                root, check.get("authority_bundle_path", "authority_bundle.json")
+            )
+            if not authority_path.is_file():
+                failures.append("full-timeline review requires authority_bundle.json")
+                target_frames = 0
+                target_fps = 0
+            else:
+                authority = json.loads(authority_path.read_text(encoding="utf-8"))
+                target_frames = int(
+                    dotted_value(authority, "delivery_spec.target_frame_count") or 0
+                )
+                target_fps = int(dotted_value(authority, "delivery_spec.fps") or 0)
+                if manifest_hash_value(
+                    approval, "authority_bundle_sha256", "authority_bundle.sha256"
+                ) != file_sha256(authority_path):
+                    failures.append("full-timeline approval has stale authority-bundle SHA")
+            frame_text = video.get("nb_read_frames") or video.get("nb_frames") or "0"
+            try:
+                actual_frames = int(frame_text)
+            except (TypeError, ValueError):
+                actual_frames = 0
+            rate_text = video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/1"
+            try:
+                actual_fps = float(Fraction(rate_text))
+            except (ValueError, ZeroDivisionError):
+                actual_fps = 0.0
+            if actual_frames != target_frames:
+                failures.append(
+                    f"full-timeline proxy frames={actual_frames}, expected {target_frames}"
+                )
+            if abs(actual_fps - target_fps) > 0.01:
+                failures.append(
+                    f"full-timeline proxy fps={actual_fps}, expected {target_fps}"
+                )
+            if len(audios) < 1:
+                failures.append("v3 full-timeline review proxy must include frozen narration")
+            if approval.get("full_timeline_reviewed") is not True:
+                failures.append("approval must record full_timeline_reviewed=true")
+            if int(approval.get("review_start_frame", -1)) != 0:
+                failures.append("full-timeline review must start at frame 0")
+            if int(approval.get("review_end_frame", -1)) != target_frames:
+                failures.append("full-timeline review must end at target_frame_count")
+            if str(approval.get("human_status", "")).lower() != "approved_by_user":
+                failures.append("full-timeline review lacks approved_by_user human status")
+            if check.get("require_workflow_v3_release", False):
+                from audit_workflow_v3 import run_audit
+
+                workflow_result = run_audit(root, "pre-render")
+                for row in workflow_result.get("checks", []):
+                    if not row.get("pass"):
+                        failures.append(
+                            f"workflow v3 {row.get('id')}: {row.get('detail')}"
+                        )
+        elif audios:
+            failures.append("v2 excerpt aesthetic proxy must not contain audio")
         review = approval.get("review", {})
         for config_field, section_name in (
             ("require_opening_review", "opening"),
@@ -2725,6 +2803,8 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
             "render_plan_sha256": render_plan_sha,
             "width": width,
             "height": height,
+            "audio_streams": len(audios),
+            "full_timeline": full_timeline,
             "workflow_ready": not failures,
             "failures": failures,
         }
@@ -5131,8 +5211,34 @@ def run_check(root: Path, check: dict[str, Any]) -> tuple[bool, str, dict[str, A
                 target_fps = float(timing_contract["fps"])
                 ordered_match_ids = list(match_by_id)
                 expected_output_spans: dict[str | int, tuple[int, int]] = {}
+                semantic_end_boundaries_available = semantic_unit_mode and all(
+                    str(match_by_id[identity].get("visual_unit_end", "")).strip()
+                    for identity in ordered_match_ids
+                )
+                semantic_shared_cursor = 0
                 for position, identity in enumerate(ordered_match_ids):
                     row = match_by_id[identity]
+                    if semantic_end_boundaries_available:
+                        try:
+                            end_frame = (
+                                target_frames
+                                if position + 1 == len(ordered_match_ids)
+                                else round(
+                                    srt_seconds(row["visual_unit_end"])
+                                    * target_fps
+                                )
+                            )
+                        except (KeyError, ValueError):
+                            failures.append(
+                                f"cue {identity}: visual_unit_end is invalid"
+                            )
+                            end_frame = semantic_shared_cursor
+                        expected_output_spans[identity] = (
+                            semantic_shared_cursor,
+                            end_frame,
+                        )
+                        semantic_shared_cursor = end_frame
+                        continue
                     explicit_start = (
                         row.get("visual_start_frame")
                         or row.get("output_start_frame")

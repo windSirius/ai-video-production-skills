@@ -15,22 +15,24 @@
 
 清单至少绑定：canonical 文本 SHA、分段源文本、生成文本、正式 WAV、ASR SHA、词级收据 SHA、专名热点、相似度结果、修复状态和最终母版 SHA。
 
-## 2. 配音词级准确性与修复
+## 2. 配音字词与连贯性双门禁
 
 - 第一释放门槛永远是 canonical 文本的零插入、零替换、零删除：不能多读、读错或漏读，且顺序和尾字完整。
 - 先做格式、时长、静音、削波检查，再做 ASR 与词级差异审计；任何非等值差异都先阻断，不因整体相似度高而放行。
 - 专名同音错写只标不确定，不自动判合成失败，也不能自动放行。只允许白名单 ASR 别名；热点表必须写要求读音与禁用读音。第二 ASR 只有在能区分争议声音时才作证，同字不同音或声调差异必须抽取短音频定向人工试听。
+- 发音分级：P0 多读/漏读/改字/错序始终阻断；P1 明显改变词义、专名或核心术语的读音阻断；P2 不影响理解的轻微声调/同音含混记录 warning，不无限重生。标题、主命题和高频专名不适用 P2 放宽。
 - 用户要求相似度≥0.90时，在词级审计通过之后再验收；低于阈值就重做或定向修复。相似度只承担次级异常发现和候选排序。
-- 只重做失败段，保留原候选和选择理由。正式 `audio/NN.wav` 指向通过版本，`attempts/` 只作历史。
-- 候选选择顺序固定为：词级完全正确；覆盖/顺序/尾字/接缝；信号；专名读音；最后才是音色、音调、情绪和自然度。
+- 以完整语义/呼吸单元生成，通常120–200个非空白汉字；不在定中、主谓、动宾、并列短语或专名中切段。只重做失败段，保留原候选和选择理由。正式 `audio/NN.wav` 指向通过版本，`attempts/` 只作历史。
+- generation text 只允许不改变音节/声调的整词代理，标点拓扑必须与 canonical 一致。禁止为骗过 ASR 新增句号/逗号，禁止词内或短语内 micro-splice。
+- 普通段至少保留两个 lexical-exact 候选；钩子、专名密集段和返修段宜保留三个。候选选择顺序固定为：词级完全正确；覆盖/顺序/尾字/接缝；信号；P1专名读音；无异常停顿、句调重置和接缝感；最后才是音色、音调和情绪。不得用第一个字面 PASS 自动晋升。
 - 任何重做、替词、拼接、交叉淡化、接缝修复、响度归一化或重新组装都会生成新音频权威，旧词级收据立即失效。对实际输出重新转写和审计，不继承源片段的通过状态。
 - 修复后重新拼接，做响度稳定、总时长和最后一句检查，并检查每个接缝前后至少1.5秒是否多出或吞掉边界词。
-- 对实际最终母带执行全文 ASR 和零插入/零替换/零删除审计，生成 `master_lexical_receipt.json` 后才可交付。
+- 对实际最终母带执行全文 ASR 和零插入/零替换/零删除审计，生成 `master_lexical_receipt.json`。然后以1×速度完整听审实际母带，检查段内连贯、相邻段衔接、P1热点和修音痕迹；生成 `narration/voice_release.json` 后才可冻结。
 - 若用户或审核者后期发现一个多字或错字，当前母带立刻标记 `untrusted_for_text`，全量重跑所有正式段与所有接缝；不能只修已暴露位置后继续沿用旧收据。
 - 若用户在剪映、DAW或其他工具里改变了口播内容、间隔或长度，先把实际修改后音频保存到稳定项目路径并重新执行全文词级、接缝、信号和人工试听门。不得沿用修改前 SHA，也不得只把旧母带裁到新时长。
 - 不得用修音处理掩盖漏字、重复、错序或错误专名；这些必须回到生成段修正。
 
-最低审计物包括 `lexical_audit.tsv`、`pronunciation_hotspots.tsv`、`master_lexical_receipt.json` 和绑定上述 SHA 的 `audio_manifest.json`。
+最低审计物包括 `lexical_audit.tsv`、`pronunciation_hotspots.tsv`、`master_lexical_receipt.json`、`voice_release.json` 和绑定上述 SHA 的 `audio_manifest.json`。`subjective_listening_performed=false`、`awaiting_human_audition` 或 `release_ready=false` 都不是正式完成状态。
 
 ## 3. BGM章节
 
@@ -68,3 +70,4 @@
 - 试听混合必须直接使用权威包指向的最终口播 SHA。裁切旧母带、从最终视频抽取不明版本音轨或仅对齐结束时间都不能证明同步。
 - BGM manifest 同时绑定最终口播 SHA、最终 SRT SHA、fps 和 `target_frame_count`；其中任一变化时，章节、自动化、试听混合与旧验收一并失效。
 - 只有测过最终导出混音，才能报告 integrated LUFS 或 true peak。
+- 技术 QA 后仍需人工抽听钩子、最密集证据、情绪转折和结尾四处，并在 manifest 中写 `human_audition_performed=true`、`human_status=pass` 与四处 checkpoint。Workflow v3 还必须记录最终 BGM master 路径/SHA、用户实际听到的旁白+BGM试听混音路径/SHA和 `approval_ledger_id`；该 ID 指向 `bgm_mix_review`。试听文件或 master 发生变化后旧批准失效。否则只能交付待审 BGM，不得写入 `CURRENT.json`。

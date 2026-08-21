@@ -63,9 +63,9 @@ Do not start aesthetic proxies or the full-length production render until this g
 
 ## 6. Approve 720p aesthetic proxies
 
-1. Render the opening, ending, and at least one representative middle interval at 720p through HyperFrames after the stress gate passes.
+1. Under workflow v3, render the complete `[0,target_frame_count)` timeline at 720p through HyperFrames after the stress gate passes and include frozen narration. Opening, ending and representative-middle captures are navigation evidence, not substitutes. A legacy v2 run may retain its already-frozen excerpt contract.
 2. Preserve the production timing, semantic-unit boundaries, motion, transitions, and crop decisions. Lower only the spatial resolution or review bitrate.
-3. Review the opening for hook and evidence timing, the middle for continuity and sustainable cadence, and the ending for emotional release and final-image function.
+3. Review the full continuous proxy at 1×. Use the opening to inspect hook/evidence timing, the middle to inspect continuity and sustainable cadence, and the ending to inspect emotional release and final-image function.
 4. Record objective proxy checks and the user's explicit creative verdict as separate fields. A machine, producer agent or the existence of a review manifest cannot set the user verdict. Repair and rerender only the affected 720p intervals until both statuses pass.
 
 Use these proxies for aesthetic iteration. Do not create a full-length target-resolution render to solicit ordinary creative feedback.
