@@ -3,6 +3,8 @@
 .idea/
 .vscode/
 *.swp
+.coverage
+htmlcov/
 
 # Python
 __pycache__/
@@ -35,6 +37,7 @@ contact_sheets/
 *.avi
 *.webm
 *.wav
+*.WAV
 *.flac
 *.mp3
 *.m4a
@@ -42,5 +45,6 @@ contact_sheets/
 *.safetensors
 *.ckpt
 *.pth
+*.pt
 *.onnx
 *.bin

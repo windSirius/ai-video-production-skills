@@ -1,5 +1,7 @@
 # VoxCPM Gradio reference
 
+> **历史配音参考。** 当前项目遵循 [配音 Skill](../SKILL.md)、[权威与释放状态](authority-and-release.md) 和 [当前服务适配](voxcpm-adapter.md)。本文不能替代固定参考校验、逐字审计或完整人工试听，也不能仅凭旧 PASS 清单释放新母带。
+
 ## Launch pattern
 
 Use the user's command when provided. A common local launch is:

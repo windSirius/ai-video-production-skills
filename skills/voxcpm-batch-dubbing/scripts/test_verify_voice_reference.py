@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from verify_voice_reference import verify, binding
 
 
@@ -56,6 +57,22 @@ class VoicePreflightTest(unittest.TestCase):
     def test_modified_sample_invalidates_pass(self):
         self.audio.write_text('changed bytes')
         self.assertFalse(verify(self.source,self.rule,'bulk',self.smoke)['passed'])
+
+    def test_portable_home_paths_bind_to_real_files_and_still_check_sha(self):
+        self.source_data['reference_audio'] = '~/voice.wav'
+        for key in ('prompt_wav_path', 'reference_wav_path'):
+            self.source_data['generation_config'][key] = '~/voice.wav'
+        self.write('source.json', self.source_data)
+        self.smoke_data['source_manifest'] = binding(self.source)
+        self.smoke_data['source_manifest']['path'] = '~/source.json'
+        self.write('smoke.json', self.smoke_data)
+        expand_fixture_home = lambda path: self.root / str(path)[2:] if str(path).startswith('~/') else path
+        with patch.object(Path, 'expanduser', expand_fixture_home):
+            result = verify('~/source.json', '~/rule.json', 'bulk', '~/smoke.json')
+            self.assertTrue(result['passed'], result)
+            self.assertEqual(result['rule_path'], str(self.rule.resolve()))
+            self.audio.write_text('changed portable reference')
+            self.assertFalse(verify('~/source.json', '~/rule.json')['passed'])
 
 
 if __name__=='__main__': unittest.main()

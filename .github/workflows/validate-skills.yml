@@ -4,43 +4,60 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.11"
+          - os: ubuntu-latest
+            python: "3.14"
+          - os: macos-15
+            python: "3.14"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.11"
-      - name: Install media probe tools
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install media tools on Linux
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg
-          ffmpeg -version
-          ffprobe -version
+      - name: Install media tools on macOS
+        if: runner.os == 'macOS'
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            brew install ffmpeg
+          fi
       - name: Install Python dependencies
-        run: python -m pip install -r requirements.txt
-      - name: Validate Skill packages
-        run: python tools/validate_skills.py
-      - name: Compile Python sources
-        run: python -m compileall -q skills
-      - name: Check script entrypoints
-        shell: bash
         run: |
-          while IFS= read -r script; do
-            python "$script" --help >/dev/null
-          done < <(rg --files skills -g '*.py' | sort)
-      - name: Run module regression tests
-        shell: bash
+          python -m pip install -r requirements-dev.txt
+          python -m pip check
+      - name: Run shared repository checks
         run: |
-          for skill in skills/*; do
-            for test_dir in "$skill/scripts" "$skill/tests"; do
-              if compgen -G "$test_dir/test_*.py" > /dev/null; then
-                python -m unittest discover -s "$test_dir" -p 'test_*.py'
-              fi
-            done
-          done
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            python tools/check.py --swift
+          else
+            python tools/check.py
+          fi

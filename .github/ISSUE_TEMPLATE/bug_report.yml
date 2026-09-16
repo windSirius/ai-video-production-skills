@@ -9,13 +9,29 @@ body:
     attributes:
       label: 影响模块
       options:
-        - 总控流程
-        - VoxCPM 配音
-        - 剪映配音与字幕
-        - 逐句画面匹配
-        - 障眼法风格
-        - 验收修订
-        - 仓库工具或 CI
+        - zhangyanfa-video-production（总控/目录/审批）
+        - game-lore-script（研究/稿件）
+        - game-footage-ingest-index（素材/镜头库）
+        - voxcpm-batch-dubbing（配音）
+        - subtitle-timeline（字幕/帧时钟）
+        - zhangyanfa-track-design（A/B/C 配画）
+        - zhangyanfa-score-and-mix（BGM/混音）
+        - zhangyanfa-track-renderer（渲染/QA）
+        - zhangyanfa-cover-production（封面）
+        - jianying-dubbing-postproduction（兼容）
+        - jianying-sentence-visual-matching（兼容）
+        - jianying-zhangyanfa-style（兼容）
+        - jianying-acceptance-polish（兼容）
+        - top-tier-narrative-editing（可选学习模块）
+        - 仓库安装/文档/依赖/检查工具/CI
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境与仓库版本
+      description: 提供提交 SHA、系统、Python/FFmpeg 版本、复制或软链接安装方式；不要贴用户名路径或完整环境变量。
+      placeholder: "commit: ...; macOS/Linux: ...; Python: ...; FFmpeg: ..."
     validations:
       required: true
   - type: textarea
@@ -35,4 +51,4 @@ body:
     id: evidence
     attributes:
       label: 验证证据
-      description: 可附脱敏日志、检查 ID 和失败输出。
+      description: 可附脱敏日志、检查 ID、doctor/check 输出。说明是 CURRENT.json 新流程还是 run_manifest.json 旧工程；技术 PASS 不代表已人工审批。

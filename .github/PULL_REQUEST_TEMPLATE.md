@@ -1,6 +1,6 @@
 ## 变更内容
 
-<!-- 说明改动了哪个 Skill 和生产阶段。 -->
+<!-- 说明改动了哪个当前/兼容模块或仓库工具，以及对应生产阶段。 -->
 
 ## 原因与影响
 
@@ -8,9 +8,11 @@
 
 ## 验证
 
-- [ ] `python3 tools/validate_skills.py`
-- [ ] `python3 -m compileall -q skills`
+- [ ] `python tools/check.py`（环境来自 requirements-dev.txt）
+- [ ] 原生 macOS 脚本变更时运行 `python tools/check.py --swift`，或说明待 CI 验证
 - [ ] 已运行受影响脚本的代表性测试
+- [ ] README、依赖说明、配置示例和 skill_catalog.json 与实际行为一致
+- [ ] 保留旧契约兼容性；没有重写审批、放宽声线/复用门禁或改变固定审核框架
 - [ ] 未提交密钥、私人素材、模型权重、生成媒体或本机专属路径
 
 ## 证据与风险

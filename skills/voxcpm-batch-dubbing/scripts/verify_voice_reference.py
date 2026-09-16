@@ -6,12 +6,12 @@ from pathlib import Path
 
 
 def digest(path):
-    with Path(path).open("rb") as handle:
+    with Path(path).expanduser().open("rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
 def binding(path):
-    return {"path": str(Path(path).resolve()), "sha256": digest(path)}
+    return {"path": str(Path(path).expanduser().resolve()), "sha256": digest(path)}
 
 
 def checked_binding(value):
@@ -19,10 +19,14 @@ def checked_binding(value):
         raise ValueError("a path and SHA-256 binding are required")
     if digest(value["path"]) != value["sha256"]:
         raise ValueError("changed bound file: " + value["path"])
-    return value
+    return {**value, "path": str(Path(value["path"]).expanduser().resolve())}
 
 
 def verify(source_path, rule_path, phase="reference", smoke_review=None):
+    source_path = Path(source_path).expanduser()
+    rule_path = Path(rule_path).expanduser()
+    if smoke_review:
+        smoke_review = Path(smoke_review).expanduser()
     rule = json.loads(Path(rule_path).read_text())
     source = json.loads(Path(source_path).read_text())
     failures = []

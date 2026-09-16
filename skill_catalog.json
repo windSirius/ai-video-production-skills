@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "production": [
+    "zhangyanfa-video-production",
+    "game-lore-script",
+    "game-footage-ingest-index",
+    "voxcpm-batch-dubbing",
+    "subtitle-timeline",
+    "zhangyanfa-track-design",
+    "zhangyanfa-score-and-mix",
+    "zhangyanfa-track-renderer",
+    "zhangyanfa-cover-production"
+  ],
+  "compatibility": [
+    "jianying-dubbing-postproduction",
+    "jianying-sentence-visual-matching",
+    "jianying-zhangyanfa-style",
+    "jianying-acceptance-polish",
+    "top-tier-narrative-editing"
+  ]
+}

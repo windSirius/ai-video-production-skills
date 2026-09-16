@@ -1,5 +1,7 @@
 # Objective verification environment
 
+> **历史 Harness 参考。** 本文适用于既有 `run_manifest.json` 工程；其中 workflow v2/v2.2 是旧流程编号，不等于当前 `production_contract_version=2`。新项目使用 [十三阶段总控](../SKILL.md) 和 [当前提交契约](submission-contracts-v2.md)。保留本文用于旧工程核验，迁移按 [旧项目迁移](legacy-migration.md) 执行。
+
 ## Precise request contract
 
 Translate the user's request into one deliverable that can be disproved. Avoid goals such as `make it better`. Prefer claims such as:

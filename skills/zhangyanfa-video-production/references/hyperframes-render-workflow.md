@@ -1,5 +1,7 @@
 # HyperFrames render workflow
 
+> **历史 Harness 参考。** 本文适用于既有 `run_manifest.json` 工程；其中 workflow v2/v2.2 是旧流程编号，不等于当前 `production_contract_version=2`。新项目使用 [十三阶段总控](../SKILL.md) 和 [当前提交契约](submission-contracts-v2.md)。保留本文用于旧工程核验，迁移按 [旧项目迁移](legacy-migration.md) 执行。
+
 Use this workflow whenever the pipeline creates a moving-image video asset. HyperFrames must own the composition, frame clock, validation, capture, and output render. FFmpeg may normalize source proxies, probe outputs, and run QA; it may not author or replace the picture master.
 
 Before source normalization or any formal render, load `authority_bundle.json`. Planning and low-resolution proxies may use an explicitly provisional bundle; a target-resolution A/B/C master requires `scripts/audit_authority_chain.py RUN_DIR` to pass without provisional mode. Bind its revision and SHA into every render lineage.

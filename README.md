@@ -1,6 +1,12 @@
 # AI Video Production Skills
 
+[![Validate skills](https://github.com/windSirius/ai-video-production-skills/actions/workflows/validate-skills.yml/badge.svg)](https://github.com/windSirius/ai-video-production-skills/actions/workflows/validate-skills.yml)
+
 可复用的游戏剧情视频制作 Skill：从研究与口播稿，到固定声线配音、字幕、逐句 A/B/C 配画、BGM、2K60 分轨、六稿封面和交付封存。总控记录实际文件、SHA-256、展示和审批，专用模块分别实现各阶段。
+
+这是供代理使用的工作流、检查器与模板集合。配音引擎、模型、原片、音乐、图像生成服务、HyperFrames 和剪映需按阶段另行准备；克隆仓库不会自动安装这些生产环境。
+
+[安装与首次运行](INSTALL.md) · [依赖与平台支持](DEPENDENCIES.md) · [更新记录](CHANGELOG.md) · [开发约定](CONTRIBUTING.md)
 
 ## 当前生产模块
 
@@ -25,7 +31,9 @@ python3 skills/zhangyanfa-video-production/scripts/workflow.py status --root PRO
 
 新项目采用 v2 提交契约与固定目录。项目内保存已接受产物、来源和审批；永久原片进入素材库；下载分块、尝试音频、转码和全量抽帧进入按 `episode_key` 隔离的本地缓存。每个模块使用 `workspace_paths.json` 取得实际路径，不根据“最终版”或修改时间猜测权威。
 
-## 本轮流程约定
+模块清单以 [skill_catalog.json](skill_catalog.json) 为准，安装器和结构检查共用这一份清单。完整流程安装九个生产模块；按阶段才加载对应模块的详细说明。
+
+## 生产约定
 
 - 冻结作者语言和证据审校，明确预测、反证与正典的边界。
 - 狐久声线核对固定参考音频 SHA 和准确参考文字；批量配音前核验真实开头试配，母带仍需完整人工试听。
@@ -39,17 +47,30 @@ python3 skills/zhangyanfa-video-production/scripts/workflow.py status --root PRO
 
 ## 旧项目兼容
 
-仓库继续保留 `jianying-dubbing-postproduction`、`jianying-sentence-visual-matching`、`jianying-zhangyanfa-style`、`jianying-acceptance-polish` 和 `top-tier-narrative-editing`，以及它们使用的早期 Harness 工具。已有剪映或 `run_manifest.json` 工程按原契约核验，迁移见 [旧项目迁移](skills/zhangyanfa-video-production/references/legacy-migration.md)。新项目由 `workflow.py` 管理，不同时启动两套状态机。
+仓库继续保留 `jianying-dubbing-postproduction`、`jianying-sentence-visual-matching`、`jianying-zhangyanfa-style`、`jianying-acceptance-polish` 和 `top-tier-narrative-editing`，以及它们使用的早期 Harness 工具。前四个用于既有剪映工作流，最后一个是可选的叙事剪辑学习模块。已有 `run_manifest.json` 工程按原契约核验，迁移见 [旧项目迁移](skills/zhangyanfa-video-production/references/legacy-migration.md)。新项目由 `workflow.py` 管理，不同时启动两套状态机。旧文档中的 workflow v2/v2.2 与当前 `production_contract_version=2` 不是同一套版本编号。
 
 ## 安装与本机配置
 
-1. 克隆仓库，确保 `${CODEX_HOME:-$HOME/.codex}/skills` 已存在。
-2. 将需要的 `skills/<skill-name>` 复制或软链接到该目录；完整流程应安装上列九个模块。
-3. 已有同名 Skill 时先比较和备份；正式生产固定到已验证的提交。
+以下命令在 macOS 或 Linux 的终端中执行。先按 [依赖说明](DEPENDENCIES.md) 准备 Python 3.11–3.14 与 FFmpeg：
 
-`config.example.env` 保留旧模块的本机配置示例。新目录模块默认使用 `~/Documents/视频素材/00_原始素材库` 和 `~/Documents/视频制作缓存`，初始化可用 `--media-root`、`--cache-root` 指定实际位置，用户指定的原片路径优先。
+```bash
+git clone https://github.com/windSirius/ai-video-production-skills.git
+cd ai-video-production-skills
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python tools/doctor.py
 
-狐久参考记录中的 `~/` 指当前用户主目录，生成实际来源清单时需展开为本机路径。仓库只包含参考规则，不附带私人音频；原件或备份必须通过相同 SHA 校验。其他作者使用自己的明确授权配置，不能以换路径的方式绕过固定声线检查。
+# 默认只预览；确认目标后用下一条命令执行。
+python tools/install_skills.py
+python tools/install_skills.py --apply
+```
+
+默认复制九个生产模块到 `~/.agents/skills`，这是当前官方文档中的用户级发现目录。安装器拒绝覆盖同名目录或链接；更新、软链接开发和已有 `~/.codex/skills` 环境的处理见 [安装指南](INSTALL.md)。路径依据：[OpenAI Build skills](https://learn.chatgpt.com/docs/build-skills#where-to-save-skills)。
+
+`config.example.env` 仅服务于旧模块，需手动 `source`，并非当前流程的通用配置。当前工作目录通过 `init --media-root --cache-root` 冻结；默认分别为 `~/Documents/视频素材/00_原始素材库` 与 `~/Documents/视频制作缓存`。可复制运行的初始化例子见 [安装指南](INSTALL.md)。
+
+狐久参考记录中的 `~/` 指当前用户主目录，参考校验器会展开路径，并输出实际文件绑定。仓库只包含经授权发布的参考规则，不附带私人音频；原件或备份必须通过相同 SHA 校验。缺少参考时不能用往期母带替代。其他作者需要独立、明确授权并测试的规则配置，不能以换路径的方式绕过狐久固定声线检查。
 
 BGM 按冻结的 `source_mode` 审查：本地音乐库模式核对配置后的音乐根目录，明确授权的生成配乐模式核对生成来源；两者都须经试听、选定和最终混音检查。
 
@@ -58,22 +79,26 @@ BGM 按冻结的 `source_mode` 审查：本地音乐库模式核对配置后的�
 常规协作按 [CONTRIBUTING.md](CONTRIBUTING.md) 使用分支和 Pull Request。代码、引用和测试放在所属模块，仓库级说明放在根目录。
 
 ```bash
-python3 -m pip install -r requirements.txt
-python3 tools/validate_skills.py
-python3 -m compileall -q skills
-git diff --check
+python -m pip install -r requirements-dev.txt
+python tools/check.py
 
-# 示例：测试总控与工作目录；其他模块使用各自 scripts 或 tests 目录。
-python3 -m unittest discover -s skills/zhangyanfa-video-production/scripts -p 'test_*.py'
+# macOS：额外验证四份原生 Swift/Vision 辅助脚本。
+python tools/check.py --swift
 ```
 
-GitHub Actions 检查包结构、Python 编译、脚本入口，并分别运行各模块的回归测试。契约测试使用合成文件验证审批、哈希、失效和恢复逻辑，不代替真实媒体 QA 或人工试听。
+本地与 GitHub Actions 共用同一入口：环境检查 → 包结构、JSON/YAML、全仓库本地 Markdown 文件链接与审核框架哈希 → Python 编译 → CLI `--help` → 各模块独立回归测试 → diff 检查。每个测试目录独立运行，避免不同模块的同名 helper 互相污染。普通编译缓存不会误报；被强制加入 Git 的缓存和媒体仍会拦截。
+
+CI 覆盖 Linux Python 3.11/3.14 与 macOS Python 3.14，macOS 额外检查 Swift。契约测试使用合成文件验证审批、哈希、失效和恢复逻辑，不代替真实模型推理、媒体 QA、视觉判断或人工试听。
 
 ## 运行依赖
 
-- Python 3.11+、FFmpeg/FFprobe、Pillow。
-- macOS、Apple Vision 与 Swift/Xcode Command Line Tools 用于原生 OCR/画面分析；契约测试不要求 macOS。
-- 本地 VoxCPM/VoxCPM2；可选 FunASR/SenseVoice，模型与运行服务单独安装。
-- 按实际阶段安装 HyperFrames、浏览器或桌面操作能力；旧剪映模块需要剪映专业版或 CapCut Desktop。
+| 层级 | 安装入口 | 用途 |
+| --- | --- | --- |
+| 基础 Python 工具 | [requirements.txt](requirements.txt) | Pillow；镜头联系表、图片尺寸核验 |
+| 仓库开发与 CI | [requirements-dev.txt](requirements-dev.txt) | 基础依赖与 PyYAML；结构和数据校验 |
+| 旧采集辅助工具 | [requirements-legacy.txt](requirements-legacy.txt) | 基础依赖与 certifi；可选的 HTTPS 证书包 |
+| 系统与生产运行时 | [DEPENDENCIES.md](DEPENDENCIES.md) | FFmpeg、Swift/Vision、VoxCPM、可选 ASR、HyperFrames/编辑器 |
 
-不提交密钥、私人声音、原始素材、模型权重、剪映工程或渲染产物。本机专有路径也不进入公共仓库。
+依赖范围用于限定已支持的大版本，不是模型环境的锁文件。正式制作另记录实际 Python、工具、模型与服务版本。安装器只复制 skill 源文件，不负责配置推理服务或自动安装第三方插件。
+
+不提交密钥、私人声音、原始素材、模型权重、剪映工程或渲染产物。本机专有路径也不进入公共仓库；处理规范见 [SECURITY.md](SECURITY.md)。

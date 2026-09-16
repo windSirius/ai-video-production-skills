@@ -1,5 +1,7 @@
 # Production harness
 
+> **历史 Harness 参考。** 本文适用于既有 `run_manifest.json` 工程；其中 workflow v2/v2.2 是旧流程编号，不等于当前 `production_contract_version=2`。新项目使用 [十三阶段总控](../SKILL.md) 和 [当前提交契约](submission-contracts-v2.md)。保留本文用于旧工程核验，迁移按 [旧项目迁移](legacy-migration.md) 执行。
+
 Use `scripts/harness.py` as the sole authority for production order after the request contract exists. The harness is a fail-closed transaction manager: it authorizes one bounded action, captures the last-known-good state, and accepts the action only when fresh evidence proves the intended delta.
 
 For every newly initialized video-rendering run, require `workflow_profiles.video_rendering=hyperframes_proxy_gated_v2`. Existing runs already frozen under `hyperframes_required_v1` retain their v1 action and verification wording; do not relabel or silently migrate their accepted artifacts. The profile frozen in the request contract decides which rules below apply.

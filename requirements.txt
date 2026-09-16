@@ -1,1 +1,3 @@
-Pillow>=10
+# Lightweight media helpers only. Python 3.11–3.14; FFmpeg is a system dependency.
+# Keep speech engines and model weights in their own runtime environment.
+Pillow>=12.3.0,<13

@@ -15,7 +15,7 @@ body:
     id: outcome
     attributes:
       label: 期望产物与完成标准
-      description: 说明可客观验证的输出、检查和授权边界。
+      description: 说明受影响模块、可客观验证的输出、检查和授权边界；如影响旧项目，说明兼容与迁移方式。
     validations:
       required: true
   - type: textarea

@@ -6,4 +6,6 @@
 - Keep `SKILL.md` frontmatter limited to `name` and `description`; keep trigger guidance in `description`.
 - Load detailed references only when their phase is active, and keep references one level below each Skill.
 - Never add secrets, private media, model weights, generated outputs, or user-specific `/Users/<name>` paths.
-- Run `python3 tools/validate_skills.py`, `python3 -m compileall -q skills`, and relevant script tests before proposing a merge.
+- Install `requirements-dev.txt` and run `python3 tools/check.py` before proposing a merge; on macOS, also use `--swift` when native helpers change. The shared runner includes source validation, compilation, entrypoint checks, isolated module tests, and diff checks.
+- Keep `skill_catalog.json`, README module descriptions, dependency documentation, and issue templates consistent when adding or retiring a module.
+- Distinguish current `workflow.py` contracts from the retained `run_manifest.json` Harness. Never reinterpret old approvals using the new state machine.
