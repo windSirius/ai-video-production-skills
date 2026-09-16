@@ -10,6 +10,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from PIL import Image
+
 
 USABLE_RIGHTS = {"official", "licensed", "user_owned"}
 CONCEPT_GATES = (
@@ -47,6 +49,15 @@ def bound_file(base: Path, item: Any, label: str, errors: list[str]) -> Path | N
 
 
 def image_size(path: Path) -> tuple[int, int] | None:
+    try:
+        with Image.open(path) as image:
+            width, height = image.size
+            if width > 0 and height > 0:
+                return width, height
+    except (OSError, ValueError):
+        pass
+
+    # Keep native macOS format support when Pillow cannot read the image.
     try:
         result = subprocess.run(
             ["/usr/bin/sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
