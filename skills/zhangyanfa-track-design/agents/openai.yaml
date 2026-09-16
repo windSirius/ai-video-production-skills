@@ -1,0 +1,4 @@
+interface:
+  display_name: "障眼法A/B/C轨设计"
+  short_description: "逐字幕换镜、人物证明、证据卡与分轨审核"
+  default_prompt: "使用 $zhangyanfa-track-design，绑定最终字幕与素材索引，按 per_caption_refresh 完成 A/B/C 配画和人物身份证明，并分别提交审核。"

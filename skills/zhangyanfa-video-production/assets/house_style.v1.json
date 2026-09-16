@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "profile_id": "zhangyanfa_house_style_v1",
+  "usage": "The controller copies the required values into request_contract.json at project initialization. Active projects never read this mutable template directly.",
+  "editorial": {
+    "cut_policy_default": "per_caption_refresh",
+    "continuity_override_requires_user_approval": true,
+    "full_frame_16_9": true,
+    "preserve_uid": true,
+    "source_audio_default": "mute",
+    "transition_default": "hard_cut",
+    "crop_variant_counts_as_refresh": false
+  },
+  "hook": {
+    "default_mode": "cg_pv_0_10",
+    "duration_seconds": 10,
+    "meaningful_refresh_seconds": 1.0,
+    "source_priority": ["official_cg", "official_pv", "story_cutscene"],
+    "forbidden_visuals": ["menu", "hud", "loading", "capture_overlay", "unrelated_combat", "source_logo"]
+  },
+  "tracks": {
+    "a_role": "narrative_continuity",
+    "b_role": "evidence_and_explanation",
+    "c_role": "sparse_symbolic_continuity",
+    "c_is_optional": true
+  },
+  "evidence_card": {
+    "short_title_count": 1,
+    "source_or_quote_count": 1,
+    "highlight_region_count": 1,
+    "production_labels_visible": false,
+    "hard_cut_default": true
+  },
+  "captions": {
+    "font_family": "新青年体",
+    "body_size_start": 5,
+    "hook_size_start": 9,
+    "position_start": {"x": 0, "y": -888},
+    "position_values_are_starting_defaults": true,
+    "ordinary_style": "cyan_white_outline",
+    "structural_emphasis": "whole_clause_red"
+  },
+  "audio": {
+    "source_audio_default_db": "-inf",
+    "narration_gain_start_db": 0.0,
+    "bgm_gain_start_db": -20.0,
+    "bgm_review_candidate_count": 4,
+    "final_loudness_reference_lufs": -23.0,
+    "final_true_peak_reference_dbfs": -3.8,
+    "measure_only_final_export": true
+  },
+  "cover": {
+    "concept_count_16_9": 6,
+    "derived_ratios": ["4:3", "3:4"],
+    "recent_cover_compare_count": 3,
+    "font_family": "新青年体",
+    "semantic_color_roles_required": true,
+    "official_identity_route": "deterministic_source",
+    "ai_redraw_official_subject": false,
+    "embedded_one_frame_cover": false
+  }
+}

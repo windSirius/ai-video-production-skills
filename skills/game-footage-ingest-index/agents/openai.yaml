@@ -1,0 +1,4 @@
+interface:
+  display_name: "游戏素材摄入与索引"
+  short_description: "录屏、来源、OCR/ASR、人物库与P0素材覆盖"
+  default_prompt: "使用 $game-footage-ingest-index，保持原始素材只读，建立可追溯镜头库、人物身份库、来源权限和P0素材覆盖。"

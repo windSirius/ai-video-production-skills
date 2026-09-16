@@ -1,0 +1,4 @@
+interface:
+  display_name: "字幕与帧时钟"
+  short_description: "离线修复SRT并冻结唯一整数帧时间轴"
+  default_prompt: "请使用 $subtitle-timeline，依据已冻结稿件和已释放旁白，离线修复字幕、保留用户时间轴，并生成可供所有轨道共用的整数帧契约。"

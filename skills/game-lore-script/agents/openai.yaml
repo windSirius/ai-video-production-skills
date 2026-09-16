@@ -1,4 +1,4 @@
 interface:
-  display_name: "游戏剧情考据口播稿"
-  short_description: "从官方证据时间线到反欧化口播、画面锚点与正典交接包"
-  default_prompt: "使用 $game-lore-script，按证据与版本权威完成这期剧情考据口播稿，并输出正典纯文本、画面锚点、标题池和钩子。"
+  display_name: "游戏考据口播稿"
+  short_description: "证据驱动、传统中文、可配画的剧情考据稿"
+  default_prompt: "请使用 $game-lore-script，依据已核验的证据和素材覆盖，写成一篇传统中文、信息密度高且可直接配音的剧情考据口播稿。"

@@ -1,4 +1,4 @@
 interface:
-  display_name: "VoxCPM 配音与修音"
-  short_description: "批量克隆配音、逐段相似度验收、定向重做与稳定响度母版修复"
-  default_prompt: "使用 $voxcpm-batch-dubbing，按正典文本生成 VoxCPM 配音，逐段达到相似度门槛，修复瑕疵并交付哈希绑定的稳定响度母版。"
+  display_name: "VoxCPM 批量配音"
+  short_description: "生成、校验并经人工试听释放旁白母带"
+  default_prompt: "请使用 $voxcpm-batch-dubbing，从已批准口播纯文本生成旁白母带，完成机器词面与信号检查，并停在人工完整试听门等待审批。"

@@ -1,197 +1,135 @@
 ---
 name: zhangyanfa-video-production
-description: Run Alan's complete “障眼法考据” production workflow with one hash-bound script/audio/SRT authority chain and human release gates, from lore evidence and mission recordings through exact-text-first VoxCPM narration, A/B/C tracks, 2K60-aware HyperFrames rendering, chapter BGM, thesis-led identity-safe covers, client-review patches, Jianying integration, delivery QA, and recoverable cleanup. Use for 一条龙制作, 至冬考据系列, 游戏录屏解析, 配音修音, 修字幕, A轨逐句配画, B轨解释卡或剪影, CG开头钩子, BGM生成或选曲, 封面制作, HyperFrames分块渲染, 甲方返修, 文件夹瘦身, or continuing any verified phase of the same video project.
+description: Manage an end-to-end 障眼法视频 project through its 13-stage state machine, current script/narration/subtitle authority, artifact-bound user approvals, downstream invalidation, final assembly, and delivery seal. Use when starting, resuming, approving, auditing, or sealing a complete video project. Route implementation work to the dedicated script, footage, dubbing, subtitle, track, score, render, and cover skills.
 ---
 
 # 障眼法视频生产总控
 
-把每一期视频当成一条可暂停、可续做、可局部返修的生产链。只执行用户当前要求的阶段；复用已经验收且哈希仍有效的资产，不为“走完整流程”重做成品。
+本 Skill 只管理阶段、权威、审批、失效和封存。它不重复定义稿件、配音、字幕、素材索引、选片、BGM、渲染或封面的内部算法。
 
-## 权威顺序
+## 第一步
 
-发生冲突时按下列顺序裁决：
+先读取项目状态：
 
-1. 用户最新明确要求与已确认的甲方反馈；
-2. 用户标记的最终字幕、最终文案、最终音频或已批准审核包；
-3. `segments.json` 或干净口播正文中的 canonical 文本；
-4. 当前阶段的哈希绑定清单、收据和客观 QA；
-5. 机器转写、生成代理词、旧修音版本、文件名与模型推测。
+```bash
+python3 scripts/workflow.py status --root PROJECT_ROOT
+```
 
-不得让发音代理词污染字幕。例如合成时可临时写“胡寄生”，canonical 文本和字幕仍保留“槲寄生”。不得用机器 ASR 推翻已经核过的专名。
+- 已有 `CURRENT.json`：从它指向的当前阶段继续。
+- 没有状态文件：从用户要求和既定偏好确定标题、主题、交付规格、剪镜规则、启用轨道、B/C 输出方式和整合工具后运行 `init`；已有答案不重复询问。目标时长只冻结用户给出的范围。默认完整复制 [house_style.v2.json](assets/house_style.v2.json) 到 `request_contract.json`，后续只读这份冻结副本。狐久默认交付独立 A/B/C、独立配音与 BGM，A 不烧口播字幕；只有实际要求整合片时使用 `--delivery-mode integrated` 或 `both`。
+- 旧项目：读取 [legacy-migration.md](references/legacy-migration.md)。不得根据文件名猜测当前版本，不得把旧聊天补写成哈希审批。
 
-## 唯一权威包
+状态文件、阶段收据和命令参数见 [state-schema.md](references/state-schema.md)。
 
-完整制作或任何正式长渲染前，读取 [authority-chain-and-release-gates.md](references/authority-chain-and-release-gates.md)，维护项目根目录唯一的 `authority_bundle.json`。它必须绑定：交付宽高/帧率/目标帧数、冻结脚本、实际最终口播文件、唯一最终 SRT，以及所有下游资产引用的同一组 SHA。
+## 工作路径硬流程
 
-任何音频剪切、替换、拼接、修音或重新导出都产生新声音权威，并使旧词级收据、SRT、timing contract、A/B/C 与 BGM 失效。不得把旧口播裁成相同长度、把旧配画截成新帧数，或用最终视频内嵌音轨替代独立最终口播文件。正式渲染前运行 `scripts/audit_authority_chain.py`；机器客观通过与用户人工通过必须分别记录，任何一方不能替另一方签字。
+新一期必须通过 `workflow.py init` 建目录，并传稳定的 `--episode-key`（例如 `GI71_EP004`）；默认 v2 模板自动冻结 `workspace_paths.json`。每个模块写文件前读取[统一目录与素材规范](references/workspace-layout.md)，通过 `workspace_layout.py resolve/new-version` 取得阶段与版本路径。禁止在顶层临时创建带日期或 `_v3` 的阶段目录，禁止把模型 attempts、转码块和全量抽帧放进 iCloud 项目或永久原片库。
 
-## 总体阶段
+共用原片在 `~/Documents/视频素材/00_原始素材库` 登记，临时处理按项目编号进入 `~/Documents/视频制作缓存/<episode_key>`；固定参考仍按原规则使用原件或同 SHA 副本。用户明确指定原片存放位置时登记实际路径，不擅自搬迁。
 
-按需从最近的有效阶段继续：
+总控对新项目产物的所属目录与 `vNNN` 层做登记检查，路径契约被修改时阻断继续；状态保存后自动刷新 `00_开始这里.md` 与交付索引。接续时先看这一入口，再核对唯一权威，不能按“最终版”或时间戳猜测。旧期可用 `adopt` 补统一工作台，原状态、审批与文件保持原位；导航不授予迁移、覆盖或清理权限。
 
-`交付规格与权威包 → 证据与录屏 → 文案 → 配音与修音 → 最终字幕 → 轨道方案与素材覆盖矩阵 → A轨代理审核 → A轨正式母版 → B/C轨 → BGM → 封面 → 剪映整合 → 甲方返修 → 交付与瘦身`
+新项目必须执行 [v2 提交、审批与交付硬流程](references/submission-contracts-v2.md)。`production_contract_version=2` 的稿件、配音、素材容量和 A 轨提交均须绑定真实审校收据；总控会复算全片复用并核验嵌套证据。旧项目的冻结 v1 规则保持有效；不能为通过新门禁而篡改旧项目，也不能给新项目选择 v1 来规避检查。迁移必须是独立、有明确范围的工作。
 
-每个阶段都必须留下：输入权威、输出路径、SHA-256、状态、未决项和下一阶段接口。详细目录见 [output-contract.md](references/output-contract.md)。
+## 十三阶段
 
-## 不可妥协的规则
+1. 项目初始化
+2. 研究与素材侦察
+3. 稿件制作
+4. 稿件审批
+5. 配音制作
+6. 最终字幕
+7. 素材冻结
+8. A/B/C 逐字幕配画与 BGM
+9. 720p 整合终审
+10. 2K60 正式渲染
+11. 按交付模式整合或打包独立分轨
+12. 六稿封面与多尺寸
+13. 交付封存
 
-- 在真实剪映工程里操作前，读取并遵守 [harness.md](references/harness.md)；禁止触碰「试试剪映助手」或「剪映助手」。
-- 新制作或修改的动态画面资产使用 HyperFrames；FFmpeg只做探测、技术代理、无损拼接辅助和 QA，不取代画面编排。
-- 把整数帧作为唯一时钟。禁止分别四舍五入开始时间和持续时间；相邻 clip 必须共享同一个边界值。
-- 开工时冻结正式交付规格；本系列默认 `2560×1440/60fps`，除非用户另有要求。不得先渲染1080p全片，再把正式分辨率当作返修意见补入。
-- 默认保留完整16:9画幅与完整 UID。不得为了遮 UID 或统一构图而混用裁切版与完整画幅版。
-- B轨、C轨和封面先给用户看审核包，再开始正式长渲染。用户已经逐项批准的资产可直接复用。
-- 配音先验收文本正确性：零多读、零错读、零漏读。音调、情绪、自然度、音色和说话人相似度不能让文本错误的候选过关；任何修音、拼接或重新归一化都会使旧词级收据失效。
-- 官方角色已有可靠形象时，默认使用官方图、用户图或原始帧做确定性合成。只有用户明确授权生成角色或完整场景时，才进入生成路线；授权不等于验收，人物身份、叙事镜头和同场景一致性仍是硬门槛。
-- 不因“做得更多”自动提升质量。一个证据页足够时就延长停留，不再叠加第二张；返修遵循“宁少做，不多做”。
-- 不删除原录屏、最终字幕、最终音频、已验收母版、工程脚本、清单、收据或 QA。任何实质删除都需用户明确授权；优先移动到可恢复备份或废纸篓。
-- 明确区分 `generated`、`downloaded`、`imported`、`applied`、`project updated`、`saved`、`exported`。
-- 明确区分 `objective_status` 与 `human_status`。机器只能证明哈希、帧数、黑场、复用、解码等事实；不能自行批准发音、钩子、配画、节奏或封面命题。
+完整依赖、阶段门禁和失效图见 [workflow-contract.md](references/workflow-contract.md)。
 
-## 1. 证据、录屏与文案
+## 工作规则
 
-完整任务录屏先按 [game-recording-vision-analysis.md](references/game-recording-vision-analysis.md) 建立任务流程和证据索引。剧情考据文案调用 `game-lore-script`，只依据已提供材料、官方页面和可追溯证据写作。
+每个模块开始前读取当前 `authority_bundle.json`。模块完成后生成实际文件和一份可注册产物；总控重新计算文件 SHA-256，不接受模块自报哈希。
 
-文案交付时同时固定：
+只可向当前阶段注册产物：
 
-- 口播正文与 spoken SHA；
-- 专名表、证据等级和待核验项；
-- 章节与素材锚点；
-- 前10秒钩子意图；
-- 标题池与封面题眼。
+```bash
+python3 scripts/workflow.py register --root PROJECT_ROOT \
+  --stage 08_track_design --role a_review --path PATH \
+  --meta-json '{"cue_count":260,"identity_error_count":0,"semantic_coverage_pass":true,"unexplained_boundary_reuse_count":0,"selected_segments_sha256":"ACTUAL_SHA","submission_review":{"path":"08_配画与BGM/v001/A/submission_review.json","sha256":"ACTUAL_REPORT_SHA"}}'
+```
 
-## 2. 配音、修音与字幕
+需要人工判断的产物必须在真实展示后按角色记录决定；同一回复可以批准多个已经展示的产物，使用 `approve-batch` 一次登记，不拆成多轮问答。v2 单项登记示例：
 
-调用 `voxcpm-batch-dubbing` 生成配音。对本系列固定采用以下优先级：
+```bash
+python3 scripts/workflow.py approve --root PROJECT_ROOT \
+  --role a_review --shown-at ISO_TIME --presentation approvals/presentations/a_v001.json \
+  --quote 'A通过' --scope '当前A轨'
+```
 
-1. 每个正式段对 canonical 文本达到零插入（多读）、零替换（错读）、零删除（漏读），并绑定实际 WAV、ASR 和词级收据 SHA；
-2. 专名、多音字、造词和曾经读错的短语进入 `pronunciation_hotspots`，写明要求读音与禁用读音；第二 ASR 只有在能区分争议读音时才有效，同字不同音或声调问题必须抽取短音频定向试听；
-3. 完整覆盖、尾字、顺序、接缝和信号检查通过；
-4. 之后才比较相似度、音调、情绪、自然度和音色。0.90 相似度是次级异常门槛，不能覆盖任何词级错误；
-5. 每次重做、替词、拼接、交叉淡化、接缝修复、响度归一化或重新组装，都使受影响文件及下游母带的旧词级收据失效；
-6. 实际最终母带必须再做一次全文 ASR 和零插入/零替换/零删除审计。若后期确认一个多字或错字，当前母带标记为 `untrusted_for_text`，重新检查全部正式段和全部接缝，不能只补已暴露的那一句。
+A、B、C、BGM 分别绑定审批对象；任何一项通过都不能替代其他项。v2 第八步批准 `bgm_review` 试听，第九步登记由该选择派生的 `bgm_master` 并放入全长整合代理，不额外要求一次同内容选曲审批。全长代理、实际交付、六稿选择与各画幅同样绑定已展示文件；字节完全相同的交付副本可沿用真实展示证据，新画幅不能预批准。
 
-词级门通过后仍须由用户试听专名热点和实际完整母带。用户说“稍后再听”时，只能继续素材研究、证据卡和低清代理；不得把任何下游结果标记为正式冻结。若用户在外部修改音频，先把那份实际文件复制到稳定项目路径、重新做全文词级审计并更新 SHA，再重建字幕与时间合同。
+720p 整合代理通过后，将正式渲染授权绑定同一 proxy SHA、当前权威和交付规格。若展示时已明确下一步是按冻结规格正式渲染，用户回复“审核通过，进入下一步”可以同时作为该上下文的授权；使用原展示收据登记，不能逼用户重复说“2K60”。明确授权也可直接登记：
 
-调用 `jianying-dubbing-postproduction` 或离线 SRT 流程修字幕。最终字幕必须：
+```bash
+python3 scripts/workflow.py authorize-render --root PROJECT_ROOT \
+  --shown-at ISO_TIME --presentation approvals/presentations/proxy_v001.json \
+  --quote '现在可以进入2K60正式渲染' \
+  --scope '当前720整合代理对应的正式分轨渲染'
+```
 
-- 与 canonical 文本逐字覆盖且顺序一致；
-- 没有标点独占行、孤立闭引号、相邻重复或无意义碎片；
-- 句末不留 `，。；：,.;:`，保留 `？！?!`；
-- 只调整语义断句和展示，不改写已经录制的口播；
-- 时钟与最终修音母版的差异在项目容差内。
+没有明确审批对象和已展示下一步的“继续”或“开始”，不能生成审批记录。
 
-一旦用户给出“最终版字幕”，它立即成为唯一字幕权威。工程对齐字幕、旧 canonical SRT 和 ASR 字幕只能作为历史，不能再驱动 A/B/C 或 BGM。所有下游必须绑定这一个 SRT SHA、cue count 和最终帧；禁止同时维护“工程时间字幕”和“交付字幕”两条有效时间轴。
+当前阶段满足门禁后才能推进：
 
-## 3. 决定 A/B/C 轨
+```bash
+python3 scripts/workflow.py advance --root PROJECT_ROOT
+```
 
-读取 [track-architecture.md](references/track-architecture.md)，先写一页轨道方案再搜素材。
+没有 `--force`。`开始制作`、`继续`、`开始渲染`等工作授权，以及`不通过`、`未批准`、`还没确认`等否定决定，都不能登记为审批；审批原话必须明确表示通过、批准、确认最终版、选定候选或给出明确的 BGM 选择。warning 可在用户看片后接受；hard blocker 不可豁免。仍绑定相同输入的旧母版可以复用，但仍要经过阶段检查，不能直接跳过阶段。
 
-正式选镜前按章节冻结素材覆盖矩阵：CG/PV钩子候选、任务录屏、至冬环境、人物身份镜头、关键原文证据和结尾回扣都要有来源与缺口状态。素材未覆盖时先补索引、补录或明确采用抽象画面，不在逐句配画中反复消耗同一小段素材。
+## 唯一权威
 
-- **A轨**：默认连续全屏叙事画面，承担人物、行动、地点和情绪。
-- **B轨**：只在需要证明、比较或解释时出现，包括原文页、圣遗物/书籍、解释卡、流程图和人物剪影。
-- **C轨**：只承担少量持续象征、气氛或空间提示；没有明确增益就不建。
+每期只有一份当前脚本、一份独立口播母带和一份最终 SRT。它们只记录在 `authority_bundle.json`。
 
-前10秒可单独采用高密度 CG/PV 钩子：通常每秒一次有意义的视觉更新，10秒后立即回到正文节奏。钩子不是把任意漂亮镜头切成十段；每一秒都要对应当前口播。
+`CURRENT.json` 只指出当前阶段及请求契约、权威、审批账和交付清单的位置，不保存第二套产物详情。当前下游文件只记录在 `deliverables.json`。人工决定只追加到 `approvals/approval_ledger.jsonl`。
 
-## 4. A轨逐句配画
+脚本、口播、字幕或其他上游文件发生变化时，先运行 `invalidate`，再注册新版。不得直接覆盖已批准文件后继续生产：
 
-调用 `jianying-sentence-visual-matching`：冻结最终 SRT，建立完整录屏索引与候选池，按4–8秒语义单元检索，完成 selected 审阅和风险行 A/B/C 审阅，再进入 HyperFrames。
+```bash
+python3 scripts/workflow.py invalidate --root PROJECT_ROOT \
+  --role bgm_master --reason '用户改选BGM'
+```
 
-要求：
+总控按照真实依赖传播失效。例如仅更换 BGM 时，A/B/C 正式母版仍可复用，但整合代理和最终成片必须重做。
 
-- 每个语义单元都有真实来源、精确 in/out、候选和匹配理由；
-- 专名行从画面本身确认人物，不拿 OCR 中出现的名字当身份证明；
-- 画面保持完整 UID、原比例和统一 contain/pad 规则；
-- 菜单、档案、任务 HUD、黑白闪、明显倒序和非叙事性重复均需单列；
-- 开头、结尾和用户点名区间必须连续播放审阅，不能只看三联帧。
+用户批准剪掉整段时，先由字幕模块保存剪辑决定表和唯一有效时钟，再让所有下游读取同一结果。不得让配音、BGM、A/B/C 各自计算删段。完成一次修改后先列实际受影响对象与范围；保留未变产物的既有批准，不扩大重审。每次用户回复可连续推进所有已满足门禁的步骤，遇到新的、尚未展示且必须由用户判断的产物才停止。
 
-在任何正式全片渲染前做全局选择审计：精确范围复用、显著重叠、相邻同源、章节来源集中度、黑场和钩子/结尾预算。机器方案只能标记为 `machine_proposed`；用户必须明确通过720p开头、代表性正文和结尾代理。代理存在或代理被制作者自己标记 PASS，不算用户验收。
-
-## 5. B/C轨审核与渲染
-
-正式制作前生成审核包，至少包含：每项资产原图、使用时间、画面目的、来源、人物身份、是否含文字/水印、预计停留时间和草图。剪影必须基于已确认的人物原图或用户批准的象征性轮廓；官方角色不得凭空生成脸。
-
-页面停留以读完和看懂为准。相邻证据页默认硬切或有画面重叠，不允许前一页淡出和后一页淡入同时落到透明/绿底，造成一两帧闪屏。下游透明素材显示为黑色时，输出纯绿幕版本并保留透明工程；绿幕必须是整轨背景策略，不是把单个人物资产换成绿色方块。
-
-B/C轨必须绑定与A轨相同的最终 SRT、fps 和 `target_frame_count`。允许审核包使用临时长度；正式母版不得仍停留在旧口播帧数，再依靠最终工程裁尾掩盖差异。
-
-## 6. HyperFrames渲染
-
-任何 A/B/C 动态母版先读取 [hyperframes-render-workflow.md](references/hyperframes-render-workflow.md)。默认采用低内存、单 worker、短代理、分块渲染和收据绑定。
-
-硬门槛：
-
-1. composition、HTML、资产、脚本和代理哈希进入输入指纹；
-2. clip 时钟从整数帧边界统一量化，运行 `scripts/audit_hyperframes_boundaries.py`；
-3. 先检查/预览受影响分块，再正式渲染；
-4. 缓存复用必须校验输入指纹，不得只看尺寸、帧率和帧数；
-5. 拼接收据绑定 render plan、全部 chunk 收据和输出 SHA；
-6. 完整母版全解码，核对帧数、PTS、首尾、黑白事件和每个分块边界；
-7. 人工逐页审阅边界联系表，并连续播放首10秒、末10秒和用户点名区间。
-
-目标分辨率长渲染前必须同时满足：权威链无 `--allow-provisional` 通过、交付规格已锁定、全局复用/黑场审计通过、720p三段代理已由用户通过。技术压力样片和机器 QA 不能替代这四项；正式全片不得作为创意预览。
-
-返修只重渲受影响块；如果生成器或全局时钟改变导致所有指纹失效，诚实重建全链，不伪装成局部复用。
-
-## 7. BGM
-
-读取 [audio-score-and-repair.md](references/audio-score-and-repair.md)，先从最终字幕划分章节，再选择一种来源模式：
-
-- `local_library`：只使用配置音乐根目录内的本地音乐；
-- `generated_score`：仅在用户明确要求或同意生成时使用，记录模型、提示词、版本和源文件哈希。
-
-两种模式都允许有歌词，但必须审查歌词含义与口播重叠。不要整期只铺一条毫无变化的循环；至少按论证章节改变配器、能量、空间或主题。最终 BGM 总长、章节边界、淡入淡出、响度和旁白避让都绑定最终字幕与音频母版。
-
-BGM试听合成必须使用 `authority_bundle.json` 指向的实际最终口播 SHA；禁止裁切旧母带到目标长度后宣称已经与用户修改音频对齐。
-
-## 8. 封面
-
-读取 [cover-production.md](references/cover-production.md)。先冻结一句本期独有的点击承诺，再把参考图明确分成三种职责：人物身份/模型参考、镜头/姿态参考、渲染/风格参考。三种参考不能混为“有这几张图就行”，上一期构图只能作风格参考，不能自动继承为本期叙事镜头。
-
-封面按以下顺序验收：人物身份正确；无字小图已能表达本期命题而非泛用对峙、救援或站桩；所有主体确实处在同一空间；最后才检查标题、装饰和缩略图。用户明确授权生成角色/完整场景时，先做16:9无文字场景测试，身份与命题门禁通过后再排字；16:9通过后才制作4:3和3:4，每个画幅独立构图与验收。
-
-## 9. 甲方返修
-
-调用 `jianying-acceptance-polish`。把每条反馈转换成精确时间码、受影响轨道、最小修改和验收方法。
-
-先诊断根因再改：所谓“闪过一帧”可能是转场透明度在切点同时归零，不一定是素材真的太短；红框错位要回到源图像素坐标和 contain 偏移，不靠目测反复试。修复后只审受影响点及其前后帧，再做完整母版的回归门禁。
-
-## 10. 集成、交付与瘦身
-
-真实剪映操作遵循模块 Skill 和 Harness。替换主画面时使用等长视频母版保护字幕、旁白和 BGM；稳定路径优先用普通文件或硬链接，不把 `/tmp` 或易断的符号链接作为长期工程依赖。
-
-完成后读取 [storage-lifecycle.md](references/storage-lifecycle.md)：先出磁盘清单和引用关系，再清理可再生代理、旧预览、失效分块与重复缓存。不要直接清理 `CloudDocs/session` 内部目录，也不要把 `~/Library/Caches` 整体删除。
-
-## 质量门禁
-
-任何一项失败都不得宣称完成：
-
-- 文案证据、专名和版本权威明确；
-- `authority_bundle.json` 只指向一份脚本、一份独立实际最终口播和一份最终 SRT，所有正式下游绑定同一 revision；
-- 配音逐段与实际最终母带均为零多读、零错读、零漏读，专名热点和接缝通过；随后相似度、覆盖、信号和修音检查通过；
-- 最终 SRT 逐字覆盖 canonical 文本；
-- A轨语义、人物身份、完整 UID、全局复用/黑场、用户批准的开头/正文/结尾代理和正式交付规格通过；
-- B/C轨资产审核通过，页面可读，没有闪底或误导性剪影；
-- HyperFrames 整数帧、分块、拼接和全片 QA 通过；
-- BGM 章节、来源、歌词与旁白可懂度通过；
-- 封面人物身份、叙事镜头、同场景一致性、文字与各画幅缩略图依次通过；
-- 甲方反馈逐项有验收证据；
-- 删除与瘦身只处理已确认可再生或可恢复内容。
+流程可按研究/稿件、配音、最终字幕、A/B/C与选曲、整片审看、封面与交付组织展示，十三阶段仍保留。不能承诺固定六次回复，也不能把后续尚未生成的文件预先记成通过。监控、低内存与增量检查按 [v2 硬流程](references/submission-contracts-v2.md) 执行。
 
 ## 模块路由
 
-- `game-lore-script`：剧情证据、口播稿、标题和文字钩子。
-- `voxcpm-batch-dubbing`：零多字/错字/漏字优先的配音生成、词级收据、相似度与修音母版。
-- `jianying-dubbing-postproduction`：字幕时间轴、语义断句和 SRT 权威。
-- `jianying-sentence-visual-matching`：A轨索引、候选、审核和画面母版。
-- `jianying-zhangyanfa-style`：钩子、B/C轨视觉语法、字幕风格与封面。
-- `jianying-acceptance-polish`：甲方反馈、局部返修和交付风险。
-- `top-tier-narrative-editing`：参考作品、A/B测试和可迁移规则学习。
+- 研究、论证、传统中文和口播稿：`game-lore-script`
+- 素材获取、OCR/ASR 和镜头库：`game-footage-ingest-index`
+- 配音生成与母带：`voxcpm-batch-dubbing`；狐久声线必须遵守该模块的「固定声线参考」及启动校验，不得自行从往期母带挑选参考。
+- 最终字幕与整数帧时钟：`subtitle-timeline`
+- A/B/C 设计、逐字幕选片和身份核验：`zhangyanfa-track-design`
+- BGM 候选、避让和混音：`zhangyanfa-score-and-mix`
+- 720p、2K60、安全渲染和最终整合：`zhangyanfa-track-renderer`
+- 六稿封面、选稿和多尺寸：`zhangyanfa-cover-production`
 
-仅在对应阶段激活时读取该模块。总控负责顺序和交接，不重复定义模块内部算法。
+只有进入对应阶段时才加载对应模块。
 
-## 版本契约
+## 封存
 
-本套八个协作技能于 2026-08-14 升级为 workflow v2；2026-08-15 根据《原初之人》第一期新增 v2.1 的配音词级零容忍与封面三级门禁；2026-08-17 根据《地原胚质与还原逆回》第二期新增 workflow v2.2：唯一脚本/音频/SRT权威包、失效传播、客观/人工双状态、2K60交付预检、A轨全局复用门与本期命题封面门。执行或恢复项目时，先按 [workflow-v2-compatibility.md](references/workflow-v2-compatibility.md) 确认版本与恢复边界。
+第十三阶段运行：
+
+```bash
+python3 scripts/workflow.py seal --root PROJECT_ROOT
+```
+
+只有前十二阶段仍有效、要求的实际文件和审批仍匹配 SHA，才能变为 `sealed`。`integrated` 要求 `final_video`；`independent_tracks` 要求 `split_delivery` 与其 QA，不强求不存在的整合成片；`both` 要求两者。独立分轨打包后可先制作封面，封存前将已展示的交付包确认与各封面决定一起登记。用户说“这期结束了”时核对实际展示范围后执行合法封存，不再靠项目私有 adapter 跳过门禁。
+
+封存不自动删除任何文件。需要整理缓存或旧代理时再读取 [storage-lifecycle.md](references/storage-lifecycle.md)。

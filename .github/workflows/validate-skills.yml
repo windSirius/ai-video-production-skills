@@ -28,3 +28,13 @@ jobs:
           while IFS= read -r script; do
             python "$script" --help >/dev/null
           done < <(rg --files skills -g '*.py' | sort)
+      - name: Run module regression tests
+        shell: bash
+        run: |
+          for skill in skills/*; do
+            for test_dir in "$skill/scripts" "$skill/tests"; do
+              if compgen -G "$test_dir/test_*.py" > /dev/null; then
+                python -m unittest discover -s "$test_dir" -p 'test_*.py'
+              fi
+            done
+          done

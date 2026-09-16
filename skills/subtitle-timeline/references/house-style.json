@@ -1,0 +1,8 @@
+{
+  "profile": "alan_caption_v1",
+  "forbidden_terminal_punctuation": "，。；：,.;:",
+  "trailing_closing_marks": "」』”’）》〉）】",
+  "preserved_terminal_punctuation": "？！?!",
+  "max_visible_chars_warning": 24,
+  "max_cps_warning": 12.0
+}

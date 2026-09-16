@@ -1,0 +1,4 @@
+interface:
+  display_name: "障眼法轨道与成片渲染"
+  short_description: "全长720整合代理、2K60串行渲染与最终QA"
+  default_prompt: "使用 $zhangyanfa-track-renderer，绑定已批准的A/B/C/BGM，先生成全长720整合代理，再安全串行渲染2K60分轨并验收最终成片。"

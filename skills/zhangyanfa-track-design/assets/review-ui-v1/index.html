@@ -1,0 +1,12 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>第三期 · 逐字幕配畫審核</title><link rel="stylesheet" href="/review.css"></head><body>
+<header><a class="brand" href="/">狐久 <span>／ 03</span></a><div class="headline">原神下一張新地圖，可能在過去<small>逐字幕配畫與配樂審核 · 16:24.67</small></div><nav><a data-tab="A" href="/tracks/review/A/">A 敘事畫面</a><a data-tab="B" href="/tracks/review/B/">B 證據</a><a data-tab="C" href="/tracks/review/C/">C 關係提示</a><a data-tab="BGM" href="/bgm/">BGM</a></nav></header>
+<div id="app"><aside><div class="sidehead"><b id="listtitle">347 條字幕</b><input id="search" placeholder="字幕序號 / 關鍵字" aria-label="搜尋字幕或證據"></div><div id="list"></div></aside><main id="review">
+<div class="eyebrow"><span id="position">001 / 347</span><span>候選方案 · 可獨立審閱</span></div>
+<div id="stage"><video id="video" muted playsinline preload="metadata"></video><img id="poster" alt="鏡頭預覽"><img id="overlayB" class="overlay" alt="B 軌證據"><img id="overlayC" class="overlay" alt="C 軌關係提示"><div id="empty">此時間段無本軌畫面</div></div>
+<div class="transport"><button id="previous">← 上一條</button><button id="play" class="primary">播放本條</button><button id="continuous">連續播放</button><button id="next">下一條 →</button><span id="clock">00:00.00</span></div><input id="scrub" type="range" min="0" max="59079" value="0" aria-label="全片時間軸">
+<div id="caption"></div><div class="options"><label><input id="showB" type="checkbox"> 疊看 B</label><label><input id="showC" type="checkbox"> 疊看 C</label><label id="backgroundLabel"><input id="showA" type="checkbox"> 疊看 A 底圖</label><label id="greenLabel"><input id="green" type="checkbox"> 純綠交付背景</label><a href="/hook.mp4" target="_blank">播放獨立 10 秒 CG 鉤子 ↗</a></div>
+<section id="choices"></section><p id="reason"></p><details><summary>來源、鏡頭範圍與頭／中／尾核驗</summary><div id="proofs"></div></details>
+<div class="feedback"><button id="mark">記錄本條已看</button><button id="save">保存本輪審閱選擇</button><span id="saveStatus"></span></div>
+<p class="note">方案按最終字幕計時。頁面選擇保存為審閱草稿；A／B／C 與 BGM 的最終通過分別記錄。A 無新增口播字幕，原生遊戲對白按素材保留。</p>
+</main><main id="music" hidden><div class="eyebrow">四套方向 · 相同旁白 · 相同四個段落</div><h1>讓音樂服務這一趟歷史旅程。</h1><p class="intro">比較開場、年代矛盾、動機轉折與結尾。每套約 74 秒，下面的段落按鈕可直接跳轉。</p><div id="musicgrid"></div><button id="saveMusic" class="primary">保存 BGM 偏好</button><p class="note">目前為本地曲庫的對照試聽；完整配樂母帶在選曲後製作。</p></main></div>
+<audio id="voice" src="/narration.wav" preload="metadata"></audio><script src="/review.js"></script></body></html>

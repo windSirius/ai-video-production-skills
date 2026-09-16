@@ -1,0 +1,42 @@
+{
+  "schema": "foxjiu_workspace_layout_v1",
+  "project_dirs": {
+    "input": "00_用户输入",
+    "research": "02_研究",
+    "script": "03_脚本",
+    "voice": "05_配音",
+    "subtitle": "06_字幕",
+    "sources": "07_素材",
+    "tracks": "08_配画与BGM",
+    "review": "09_审片",
+    "masters": "10_正式输出",
+    "delivery": "11_交付",
+    "covers": "12_封面",
+    "tools": "98_工具与日志",
+    "history": "99_历史"
+  },
+  "role_dirs": {
+    "evidence_ledger": "research", "source_scout": "research",
+    "script": "script", "script_qa": "script",
+    "narration": "voice", "voice_release": "voice",
+    "subtitle": "subtitle", "timing_contract": "subtitle",
+    "source_freeze": "sources",
+    "track_plan": "tracks", "a_review": "tracks", "b_review": "tracks", "c_review": "tracks", "bgm_review": "tracks", "bgm_master": "tracks",
+    "integrated_proxy_720": "review",
+    "a_master": "masters", "b_master": "masters", "c_master": "masters", "render_qa": "masters",
+    "final_video": "delivery", "final_video_qa": "delivery", "split_delivery": "delivery", "split_delivery_qa": "delivery",
+    "cover_candidates": "covers", "cover_16_9": "covers", "cover_4_3": "covers", "cover_3_4": "covers"
+  },
+  "cache_dirs": ["ingest", "voice", "review", "render", "qa", "logs"],
+  "version_pattern": "v[0-9]{3,}",
+  "root_control_files": ["CURRENT.json", "request_contract.json", "authority_bundle.json", "deliverables.json", "workspace_paths.json", "workflow_metrics.json"],
+  "root_control_dirs": ["approvals", "state", "00_工作台"],
+  "entry_file": "00_开始这里.md",
+  "rules": {
+    "one_durable_original_per_source": true,
+    "generated_cache_outside_icloud": true,
+    "never_move_approved_artifacts_for_tidiness": true,
+    "legacy_views_do_not_replace_authority": true,
+    "generated_indices_are_not_approval": true
+  }
+}

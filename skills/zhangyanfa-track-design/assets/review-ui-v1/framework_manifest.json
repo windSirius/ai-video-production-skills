@@ -1,0 +1,12 @@
+{
+  "framework_id": "foxjiu-review-ui-v1",
+  "source_episode": "03_伊斯塔露与历史回溯",
+  "user_instruction": "以后审批用的webui就锁死这一套框架，不要再换了",
+  "captured_at": "2026-09-14T16:16:42.472298+00:00",
+  "sha256": {
+    "index.html": "5090557efc31d6625fda13596b8ff4151c049dfdea45023bf857d9e3450372c5",
+    "review.css": "2ed878d5459eb67f7c1027069355f54bc21b3b4dffaecefb6e114f149a30845d",
+    "review.js": "ce6889144c8134ab6a7b267d75950362819edb1c1f7585d87142a3abae0363d1"
+  },
+  "template_kind": "exact approved presentation snapshot; project data must be adapted separately"
+}

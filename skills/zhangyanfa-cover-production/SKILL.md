@@ -1,0 +1,68 @@
+---
+name: zhangyanfa-cover-production
+description: 根据本期唯一点击承诺和官方人物资产制作六种真正不同的 16:9 封面方案，完成身份、叙事镜头、同场景、排字和缩略图审核；用户选定后再独立制作 4:3 与 3:4 版本。
+---
+
+# 障眼法封面制作
+
+## 工作路径
+
+先读取本期 `workspace_paths.json`，遵守[统一目录与素材规范](../zhangyanfa-video-production/references/workspace-layout.md)。六稿、选定16:9、4:3、3:4及QA都放 `covers/vNNN`，按 concepts_16_9、selected、qa 分区。多个画幅由交付索引统一入口访问；生成临时图层不混入已选封面目录。 所有新版本先分配目录，再写文件；不自行发明另一套阶段路径。旧期 `legacy_indexed` 工作台用于导航，不视作新生产目录或新的审批权威。
+
+## 前提
+
+冻结本期一句话点击承诺、标题池、官方/用户主体素材、授权和最近三期封面。封面首先要在无字缩略图中讲清本期人物关系或命题，不能靠标题挽救错误镜头。
+
+## 六种 16:9 概念
+
+稿件冻结后可提前准备点击承诺、官方主体与六种草图思路；正式六稿在第十二步按当前内容制作。标题、开头和封面指向同一问题，不能让封面承诺稿内未论证的结论。送审前完成六稿全部内部检查，不能让用户承担第一轮找错。
+
+先做 A–F 六张真正不同的叙事方向。不同必须体现在动作、人物关系、机位、空间或核心视觉命题；仅换颜色、排字、背景纹理或局部光效不算新概念。制作时读取 [cover-identity-and-layout.md](references/cover-identity-and-layout.md)。
+
+六张成品必须有六个不同的实际 SHA。manifest 逐张列 `source_ids`，并绑定 `cover_sources` 的真实文件/SHA、职责与已清权状态；同时绑定至少三张最近封面，完成并记录 recent-cover 对比。
+
+## 主体与生成边界
+
+- 官方人物、武器、UI 和图标默认使用官方/用户资产做确定性合成。
+- ImageGen 默认只生成背景、气氛与光效；用户明确授权完整场景后才可生成角色，但授权不等于身份通过。
+- 不让图像模型生成中文标题；文字使用本地字体排版。
+
+## 审核顺序
+
+前一门失败时不进入后一门；checker 对每稿同时要求 `source_rights_pass` 与 `recent_cover_compare_pass`：
+
+1. `identity_pass`：角色、武器和标志物与冻结来源一致；
+2. `shot_pass`：无字图直接承载本期命题；
+3. `same_space_pass`：光源、透视、尺度、材质和遮挡统一；
+4. `text_pass`：无错字、字体准确、颜色有语义职责；
+5. `thumbnail_pass`：小图可读且主体明确；
+6. `edge_artifact_pass`：无白边、接缝、伪线和异常肢体。
+
+将六张 16:9 与最近三期无字封面并排；人物站位、尺度、标题预留、颜色职责和光向中有三项高度重复时，先改叙事镜头，不能只换字。
+
+## 选择与多画幅
+
+用户从 A–F 选择后，冻结所选 16:9 的路径与 SHA，再分别重排 4:3 和 3:4。两个衍生画幅必须独立调整人物、动作中心、标题和安全区；每版绑定 `source_16_9_sha256` 与非空 `layout_operations`，checker 会做归一化像素比较，纯机械 resize 直接失败。每个比例分别检查遮挡、人物等比、标题安全区和缩略图可读性。
+
+保留候选单张的真实展示收据；选中的 16:9 复制到交付目录且字节相同，可以绑定原展示并记录此次选择，不要求用户再批准同一张。新的 4:3、3:4 必须制作、检查、展示后才记录决定，可与已展示交付包在一次回复中分别登记。不能因为“选择 A”就预批准尚未产生的画幅，也不能因目录更名否认同字节产物已经展示。使用总控 [v2 批量审批](../zhangyanfa-video-production/references/submission-contracts-v2.md)，不得倒造展示时间或改写原话。
+
+## 首帧封面
+
+默认只生产平台外置封面。`embedded_one_frame_cover` 只有在项目初始化时显式启用才生效；启用后必须在最终整合前完成 16:9 审批，并由 renderer 将所有叙事轨统一后移一帧。
+
+## 输出
+
+```text
+cover/cover_sources.json
+cover/concepts_16_9/A-F
+cover/review_sheet_16_9.jpg
+cover/review_manifest.json
+cover/approved/cover_16_9.*
+cover/approved/cover_4_3.*
+cover/approved/cover_3_4.*
+cover/cover_qa.json
+```
+
+## 脚本
+
+- `scripts/audit_cover_manifest.py`：检查六稿差异声明、来源、批准的 16:9 与多画幅 QA。

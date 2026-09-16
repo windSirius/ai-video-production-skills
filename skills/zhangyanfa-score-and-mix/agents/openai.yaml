@@ -1,0 +1,4 @@
+interface:
+  display_name: "障眼法BGM与混音"
+  short_description: "多套候选、章节配乐、旁白避让与最终混音"
+  default_prompt: "使用 $zhangyanfa-score-and-mix，基于冻结旁白和字幕提供可比较的BGM候选，独立审批后制作全长母带并完成混音QA。"
