@@ -31,6 +31,8 @@ python3 skills/zhangyanfa-video-production/scripts/workflow.py status --root PRO
 
 新项目采用 v2 提交契约与固定目录。项目内保存已接受产物、来源和审批；永久原片进入素材库；下载分块、尝试音频、转码和全量抽帧进入按 `episode_key` 隔离的本地缓存。每个模块使用 `workspace_paths.json` 取得实际路径，不根据“最终版”或修改时间猜测权威。
 
+本地工作根统一为 `~/Documents/视频工作区`，素材与按期缓存实际集中存放；iCloud 项目和交付通过同一入口访问。经授权迁移的旧绝对路径保留兼容链接，冻结契约不因搬迁重写。配置本机 `storage_roots.json` 后，路径解析会阻断断链和新增散落目录；使用 `audit_storage_layout.py` 可独立复查。
+
 模块清单以 [skill_catalog.json](skill_catalog.json) 为准，安装器和结构检查共用这一份清单。完整流程安装九个生产模块；按阶段才加载对应模块的详细说明。
 
 ## 生产约定
@@ -68,7 +70,7 @@ python tools/install_skills.py --apply
 
 默认复制九个生产模块到 `~/.agents/skills`，这是当前官方文档中的用户级发现目录。安装器拒绝覆盖同名目录或链接；更新、软链接开发和已有 `~/.codex/skills` 环境的处理见 [安装指南](INSTALL.md)。路径依据：[OpenAI Build skills](https://learn.chatgpt.com/docs/build-skills#where-to-save-skills)。
 
-`config.example.env` 仅服务于旧模块，需手动 `source`，并非当前流程的通用配置。当前工作目录通过 `init --media-root --cache-root` 冻结；默认分别为 `~/Documents/视频素材/00_原始素材库` 与 `~/Documents/视频制作缓存`。可复制运行的初始化例子见 [安装指南](INSTALL.md)。
+`config.example.env` 仅服务于旧模块，需手动 `source`，并非当前流程的通用配置。当前工作目录通过 `init --media-root --cache-root` 冻结；默认分别为 `~/Documents/视频工作区/02_素材库/00_原始素材库` 与 `~/Documents/视频工作区/03_制作缓存`。可复制运行的初始化例子见 [安装指南](INSTALL.md)。
 
 狐久参考记录中的 `~/` 指当前用户主目录，参考校验器会展开路径，并输出实际文件绑定。仓库只包含经授权发布的参考规则，不附带私人音频；原件或备份必须通过相同 SHA 校验。缺少参考时不能用往期母带替代。其他作者需要独立、明确授权并测试的规则配置，不能以换路径的方式绕过狐久固定声线检查。
 

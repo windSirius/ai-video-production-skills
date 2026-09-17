@@ -25,7 +25,9 @@ python3 scripts/workflow.py status --root PROJECT_ROOT
 
 新一期必须通过 `workflow.py init` 建目录，并传稳定的 `--episode-key`（例如 `GI71_EP004`）；默认 v2 模板自动冻结 `workspace_paths.json`。每个模块写文件前读取[统一目录与素材规范](references/workspace-layout.md)，通过 `workspace_layout.py resolve/new-version` 取得阶段与版本路径。禁止在顶层临时创建带日期或 `_v3` 的阶段目录，禁止把模型 attempts、转码块和全量抽帧放进 iCloud 项目或永久原片库。
 
-共用原片在 `~/Documents/视频素材/00_原始素材库` 登记，临时处理按项目编号进入 `~/Documents/视频制作缓存/<episode_key>`；固定参考仍按原规则使用原件或同 SHA 副本。用户明确指定原片存放位置时登记实际路径，不擅自搬迁。
+共用原片在 `~/Documents/视频工作区/02_素材库/00_原始素材库` 登记，临时处理按项目编号进入 `~/Documents/视频工作区/03_制作缓存/<episode_key>`；固定参考仍按原规则使用原件或同 SHA 副本。用户明确指定原片存放位置时登记实际路径，不擅自搬迁。
+
+本地大文件统一归属 `~/Documents/视频工作区`。已配置 `00_管理/storage_roots.json` 时，初始化、路径解析与检查会核验兼容链接及散落目录；失败先修路径，不另建一个 Scratch 绕过。每期写入前运行 `workspace_layout.py doctor`，大范围整理另运行 `audit_storage_layout.py`。迁移后旧绝对路径只作兼容入口，新配置写实际统一路径。已有冻结路径契约保持原字节，不能为了改目录伪造审批或批量重写 SHA。
 
 总控对新项目产物的所属目录与 `vNNN` 层做登记检查，路径契约被修改时阻断继续；状态保存后自动刷新 `00_开始这里.md` 与交付索引。接续时先看这一入口，再核对唯一权威，不能按“最终版”或时间戳猜测。旧期可用 `adopt` 补统一工作台，原状态、审批与文件保持原位；导航不授予迁移、覆盖或清理权限。
 

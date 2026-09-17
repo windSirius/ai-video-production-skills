@@ -62,7 +62,7 @@ python tools/install_skills.py --mode symlink --apply
 
 ```bash
 python skills/zhangyanfa-video-production/scripts/workflow.py init \
-  --root "$HOME/Documents/视频制作示例/01_示例主题" \
+  --root "$HOME/Documents/视频工作区/01_项目/示例系列/01_示例主题" \
   --title '示例主题' --theme '验证工作目录与状态入口' \
   --width 2560 --height 1440 --fps 60 \
   --cut-policy per_caption_refresh --tracks A,B,C,BGM \
@@ -70,14 +70,14 @@ python skills/zhangyanfa-video-production/scripts/workflow.py init \
   --assembly-tool hyperframes \
   --delivery-mode independent_tracks --a-subtitles exclude \
   --episode-key DEMO_EP001 \
-  --media-root "$HOME/Documents/视频素材/00_原始素材库" \
-  --cache-root "$HOME/Documents/视频制作缓存"
+  --media-root "$HOME/Documents/视频工作区/02_素材库/00_原始素材库" \
+  --cache-root "$HOME/Documents/视频工作区/03_制作缓存"
 
 python skills/zhangyanfa-video-production/scripts/workflow.py status \
-  --root "$HOME/Documents/视频制作示例/01_示例主题"
+  --root "$HOME/Documents/视频工作区/01_项目/示例系列/01_示例主题"
 
 python skills/zhangyanfa-video-production/scripts/workspace_layout.py doctor \
-  --root "$HOME/Documents/视频制作示例/01_示例主题"
+  --root "$HOME/Documents/视频工作区/01_项目/示例系列/01_示例主题"
 ```
 
 `init` 只创建项目、冻结请求与路径并建立导航，不能产生稿件、配音、审批或渲染授权。打开项目里的 `00_开始这里.md`，各阶段产物按 `v001/v002` 保存。缓存根不能位于 iCloud，也不能与项目和原始素材库重叠。已有项目使用 `status`，不要再次 `init`；命令完整参数以 `--help` 为准。

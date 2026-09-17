@@ -9,7 +9,7 @@
 
 ## 单工执行
 
-`safe_render_supervisor.py` 启动时持有总控共享的 `~/Documents/视频制作缓存/.foxjiu-heavy-worker.lock`，并向渲染子进程传递锁描述符；其他重任务（包括配音模型批次）用 `zhangyanfa-video-production/scripts/heavy_job.py -- COMMAND ...` 包裹。不要再把已自带锁的 supervisor 放进第二层 guard。锁占用返回 75，不杀其他项目、不删除锁文件；待现有任务释放后恢复。
+`safe_render_supervisor.py` 启动时持有总控共享的 `~/Documents/视频工作区/03_制作缓存/.foxjiu-heavy-worker.lock`，并向渲染子进程传递锁描述符；其他重任务（包括配音模型批次）用 `zhangyanfa-video-production/scripts/heavy_job.py -- COMMAND ...` 包裹。不要再把已自带锁的 supervisor 放进第二层 guard。锁占用返回 75，不杀其他项目、不删除锁文件；待现有任务释放后恢复。
 
 正式轨道顺序固定为 A、B、C。一次只运行一个 HyperFrames/浏览器渲染和一个 worker；使用 `caffeinate` 保持系统唤醒。优先 VideoToolbox、GPU与低内存模式，实际编码器必须写入收据。
 

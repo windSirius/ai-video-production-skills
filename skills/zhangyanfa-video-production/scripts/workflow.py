@@ -1872,8 +1872,8 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--a-subtitles", choices=("exclude", "burn"))
     init.add_argument("--final-subtitles", choices=("exclude", "burn"))
     init.add_argument('--episode-key', help='Stable ASCII key, e.g. GI71_EP004; use across the cache and asset index')
-    init.add_argument('--media-root', help='Durable common media library; default ~/Documents/视频素材/00_原始素材库')
-    init.add_argument('--cache-root', help='Local cache base; default ~/Documents/视频制作缓存')
+    init.add_argument('--media-root', help='Durable common media library; default ~/Documents/视频工作区/02_素材库/00_原始素材库')
+    init.add_argument('--cache-root', help='Local cache base; default ~/Documents/视频工作区/03_制作缓存')
     init.set_defaults(func=command_init)
 
     status = subparsers.add_parser("status", help="show current stage and gate")

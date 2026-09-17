@@ -15,8 +15,9 @@ import re
 from datetime import datetime, timezone
 
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets/workspace_layout.v1.json'
-DEFAULT_MEDIA = Path.home()/'Documents/视频素材/00_原始素材库'
-DEFAULT_CACHE = Path.home()/'Documents/视频制作缓存'
+DEFAULT_WORKSPACE = Path.home()/'Documents/视频工作区'
+DEFAULT_MEDIA = DEFAULT_WORKSPACE/'02_素材库/00_原始素材库'
+DEFAULT_CACHE = DEFAULT_WORKSPACE/'03_制作缓存'
 MARKER = '<!-- generated: foxjiu-workspace-v1; navigation only -->'
 ROLE_LABELS = {
     'script':'稿件','narration':'总控登记旁白','subtitle':'总控登记字幕','timing_contract':'帧时钟',
@@ -55,21 +56,35 @@ def valid_key(key):
     return key
 
 
+def storage_guard(media,cache):
+    """Enforce a local, explicitly established storage manifest when applicable."""
+    workspace=DEFAULT_WORKSPACE.expanduser().resolve()
+    manifest=workspace/'00_管理/storage_roots.json'
+    if not manifest.is_file() or not any(Path(p).expanduser().resolve().is_relative_to(workspace) for p in (media,cache)):
+        return
+    from audit_storage_layout import audit
+    result=audit(manifest)
+    if result['status']!='PASS':
+        raise ValueError('storage layout drift: '+'; '.join(result['errors']))
+
+
 def create(root,episode_key=None,media_root=None,cache_root=None,mode='canonical',legacy_map=None):
     root=Path(root).expanduser().resolve()
     key=valid_key(episode_key or 'EP_'+hashlib.sha256(str(root).encode()).hexdigest()[:12])
     path=root/'workspace_paths.json'
     if path.exists():
         prior=load(path)
+        storage_guard(prior['media_root'],prior['cache_base'])
         if prior.get('episode_key')!=key or prior.get('mode')!=mode:
             raise ValueError('workspace already has another identity/mode; explicit migration is required')
-        if media_root and str(Path(media_root).expanduser().resolve())!=prior['media_root']:
+        if media_root and Path(media_root).expanduser().resolve()!=Path(prior['media_root']).expanduser().resolve():
             raise ValueError('changing the media root requires an explicit path migration')
-        if cache_root and str(Path(cache_root).expanduser().resolve())!=prior['cache_base']:
+        if cache_root and Path(cache_root).expanduser().resolve()!=Path(prior['cache_base']).expanduser().resolve():
             raise ValueError('changing the cache root requires an explicit path migration')
         return prior
     media=Path(media_root or DEFAULT_MEDIA).expanduser().resolve()
     cache_base=Path(cache_root or DEFAULT_CACHE).expanduser().resolve()
+    storage_guard(media,cache_base)
     cache=cache_base/key
     if is_cloud(cache_base): raise ValueError('cache root must be local, outside iCloud/File Provider')
     if cache_base.is_relative_to(root) or root.is_relative_to(cache_base): raise ValueError('project and cache roots must be separate')
@@ -118,6 +133,7 @@ def create(root,episode_key=None,media_root=None,cache_root=None,mode='canonical
 
 def resolve(root,kind,version=None):
     root=Path(root).resolve();config=load(root/'workspace_paths.json')
+    storage_guard(config['media_root'],config['cache_base'])
     if kind=='media':base=Path(config['media_root'])
     elif kind.startswith('cache:'):
         sub=kind.partition(':')[2]
@@ -204,7 +220,34 @@ def sync_catalog(root,config,title,delivery_index):
                 link('共用原片与旧素材位置',Path(config['media_root'])/'00_素材入口.md'),'',
                 link('本地缓存索引',Path(config['cache_base'])/'00_缓存索引.md'),'',
                 link('每期标准目录模板',management/'模板_每期标准目录')]
+        if (DEFAULT_WORKSPACE/'00_开始这里.md').is_file():
+            lines+=['',link('统一视频工作区',DEFAULT_WORKSPACE/'00_开始这里.md')]
         generated_text(management/'00_开始这里.md','\n\n'.join(lines[:2])+'\n\n'+'\n'.join(lines[2:])+'\n')
+        sync_storage_portal(catalog,rows)
+
+
+def sync_storage_portal(catalog,rows):
+    """Keep the configured central project/delivery entrance current, without copying media."""
+    workspace=DEFAULT_WORKSPACE.expanduser().resolve();manifest=workspace/'00_管理/storage_roots.json'
+    if not manifest.is_file():return
+    storage=load(manifest)
+    if not storage.get('project_catalog') or Path(storage['project_catalog']).resolve()!=Path(catalog).resolve():return
+    storage_guard(storage['media_root'],storage['cache_root'])
+    lines=['# 项目与交付入口','','这里自动跟随项目目录索引更新；原审批和文件权威不变。','',
+           '| 期号 | 题目 | 项目 | 文件索引 | 本地处理 |','|---|---|---|---|---|']
+    for row in rows:
+        root=Path(row['original_root']);key=valid_key(row['episode_key'])
+        project=workspace/'01_项目'/root.parent.name/root.name
+        delivery=workspace/'05_交付'/key
+        for alias,target in [(project,root),(delivery,Path(row['delivery_index']).parent)]:
+            if alias.absolute()==target.absolute():continue
+            alias.parent.mkdir(parents=True,exist_ok=True)
+            if alias.exists() or alias.is_symlink():
+                if not alias.is_symlink() or alias.resolve()!=target.resolve():raise ValueError('central portal link conflict: '+str(alias))
+            else:alias.symlink_to(target.resolve(),target_is_directory=True)
+        cache=Path(storage['cache_root'])/key
+        lines.append(f'| {key} | {row["title"].replace("|","／")} | {link("打开",project)} | {link("拿文件",row["delivery_index"])} | {link("本期目录",cache)} |')
+    generated_text(workspace/'00_项目列表.md','\n'.join(lines)+'\n')
 
 
 def refresh(root):
@@ -270,10 +313,12 @@ def refresh(root):
 
 def doctor(root):
     root=Path(root).resolve();config=load(root/'workspace_paths.json');errors=[];warnings=[]
+    try:storage_guard(config['media_root'],config['cache_base'])
+    except (ValueError,OSError,KeyError,TypeError) as exc:errors.append(str(exc))
     if config.get('project_root')!=str(root):errors.append('project moved without updating its workspace contract')
     owner=Path(config['cache_root'])/'owner.json'
     if not owner.is_file() or load(owner).get('project_root')!=str(root):errors.append('cache ownership mismatch')
-    if is_cloud(config['cache_root']):errors.append('cache is under iCloud/File Provider')
+    if is_cloud(Path(config['cache_root']).resolve()):errors.append('cache is under iCloud/File Provider')
     viewroot=root if config['mode']=='canonical' else root/'00_工作台'
     for label in config['project_dirs'].values():
         if not(viewroot/label).is_dir():errors.append('missing category: '+label)

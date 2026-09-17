@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import workspace_layout as ws
 from media_registry import register as register_media
 
@@ -42,6 +43,39 @@ class WorkspaceTest(unittest.TestCase):
         self.assertEqual(first.name,'v001');self.assertEqual(second.name,'v002')
         self.assertEqual((first/'稿件.md').read_text(),'approved bytes')
         with self.assertRaises(ValueError):ws.resolve(self.root,'script','../escape')
+
+    def test_relocated_roots_preserve_frozen_contract_via_legacy_aliases(self):
+        config=self.create();before=ws.digest(self.root/'workspace_paths.json')
+        new_media=self.base/'workspace/media';new_cache=self.base/'workspace/cache'
+        new_media.parent.mkdir()
+        self.media.rename(new_media);self.media.symlink_to(new_media,target_is_directory=True)
+        self.cache.rename(new_cache);self.cache.symlink_to(new_cache,target_is_directory=True)
+        self.assertEqual(ws.create(self.root,'GI71_EP004',new_media,new_cache),config)
+        self.assertEqual(ws.digest(self.root/'workspace_paths.json'),before)
+        path=ws.new_version(self.root,'cache:render')
+        self.assertEqual(path.resolve(),new_cache/'GI71_EP004/render/v001')
+        self.assertEqual(ws.doctor(self.root)['status'],'PASS')
+
+    def test_doctor_detects_cache_redirected_into_cloud(self):
+        self.create()
+        cloud=self.base/'Mobile Documents/cache';cloud.parent.mkdir()
+        self.cache.rename(cloud);self.cache.symlink_to(cloud,target_is_directory=True)
+        self.assertEqual(ws.doctor(self.root)['status'],'FAIL')
+
+    def test_storage_drift_blocks_resolver_before_writing(self):
+        workspace=self.base/'workspace';media=workspace/'media';cache=workspace/'cache'
+        media.mkdir(parents=True);cache.mkdir();(workspace/'00_管理').mkdir()
+        alias=self.base/'old-cache';alias.symlink_to(cache,target_is_directory=True)
+        config={'schema':'video_storage_roots_v1','workspace_root':str(workspace),
+                'media_root':str(media),'cache_root':str(cache),
+                'legacy_aliases':[{'source':str(alias),'target':str(cache)}]}
+        (workspace/'00_管理/storage_roots.json').write_text(json.dumps(config))
+        with patch.object(ws,'DEFAULT_WORKSPACE',workspace):
+            ws.create(self.root,'GI71_EP004',media,cache)
+            alias.unlink();alias.mkdir()
+            with self.assertRaisesRegex(ValueError,'storage layout drift'):
+                ws.new_version(self.root,'cache:render')
+            self.assertFalse((cache/'GI71_EP004/render/v001').exists())
 
     def test_legacy_adoption_does_not_change_controls_or_media(self):
         self.root.mkdir();folder=self.root/'03_脚本_v4';folder.mkdir()
@@ -113,6 +147,23 @@ class WorkspaceTest(unittest.TestCase):
         self.assertEqual(len(rows),1)
         self.assertEqual(rows[0]['title'],'updated title')
         self.assertIn('updated title',(catalog.parent/'00_开始这里.md').read_text())
+
+    def test_catalog_changes_refresh_central_portal_without_media_copy(self):
+        workspace=self.base/'workspace';workspace.mkdir()
+        media=workspace/'media';cache=workspace/'cache';media.mkdir();cache.mkdir()
+        manifest=workspace/'00_管理/storage_roots.json';manifest.parent.mkdir()
+        catalog=self.base/'00_制作管理/项目索引.json'
+        manifest.write_text(json.dumps({'schema':'video_storage_roots_v1','workspace_root':str(workspace),
+            'media_root':str(media),'cache_root':str(cache),'project_catalog':str(catalog)}))
+        root=self.base/'series/01_title';delivery=root/'11_交付';delivery.mkdir(parents=True)
+        row={'episode_key':'EP001','original_root':str(root),'title':'original','delivery_index':str(delivery/'index.md')}
+        with patch.object(ws,'DEFAULT_WORKSPACE',workspace):
+            ws.sync_storage_portal(catalog,[row])
+            alias=workspace/'01_项目/series/01_title'
+            self.assertTrue(alias.is_symlink());self.assertEqual(alias.resolve(),root)
+            self.assertEqual((workspace/'05_交付/EP001').resolve(),delivery)
+            row['title']='changed';ws.sync_storage_portal(catalog,[row])
+            self.assertIn('changed',(workspace/'00_项目列表.md').read_text())
 
     def test_controller_requires_stable_episode_identity(self):
         result=self.cli('init','--title','固定编号','--theme','路径归属','--width','2560','--height','1440','--fps','60',

@@ -171,7 +171,7 @@ python3 scripts/workflow.py approve-batch --root PROJECT_ROOT --decisions DECISI
 
 ## 低内存、监控和增量执行
 
-- 重生成/解码/渲染任务共用稳定锁 `~/Documents/视频制作缓存/.foxjiu-heavy-worker.lock`，不能按项目或日期换锁而意外同时运行。配音批次和其他重任务用 `scripts/heavy_job.py -- COMMAND ...`；renderer 的 `safe_render_supervisor.py` 已自动持锁，不再套一层。锁描述符传递给子进程，锁占用返回75；锁持有时可顺序做轻量文案/清单工作。禁止仅检查锁文件是否存在后继续，禁止强删另一个活跃任务的锁。
+- 重生成/解码/渲染任务共用稳定锁 `~/Documents/视频工作区/03_制作缓存/.foxjiu-heavy-worker.lock`，不能按项目或日期换锁而意外同时运行。配音批次和其他重任务用 `scripts/heavy_job.py -- COMMAND ...`；renderer 的 `safe_render_supervisor.py` 已自动持锁，不再套一层。锁描述符传递给子进程，锁占用返回75；锁持有时可顺序做轻量文案/清单工作。禁止仅检查锁文件是否存在后继续，禁止强删另一个活跃任务的锁。
 - 同时一个重 worker。正式渲染 A→B→C，非 iCloud staging；配音保持同一模型会话连续批量，压力或失败才卸载/重启，不以牺牲音质换低占用。
 - 每次进展记录：当前阶段/块、已完成与剩余、最后有效产物、elapsed、实际模型加载/生成/QA耗时。内存注明是 worker RSS、整个进程树还是系统/统一内存，不互相替代。ETA 用本次已完成块统计，未足够采样时明确未估计。
 - 监控关注新输出、失败、停滞、压力和完成，不反复创建监控任务或刷同一状态；对用户有意义的进展及时汇报。停止准确进程组，保留通过块，从有效输入指纹续作。

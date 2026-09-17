@@ -9,11 +9,15 @@ from pathlib import Path
 import signal
 import subprocess
 
-DEFAULT_LOCK = Path.home()/'Documents/视频制作缓存/.foxjiu-heavy-worker.lock'
+DEFAULT_LOCK = Path.home()/'Documents/视频工作区/03_制作缓存/.foxjiu-heavy-worker.lock'
+LEGACY_LOCK = Path.home()/'Documents/视频制作缓存/.foxjiu-heavy-worker.lock'
 
 
 @contextmanager
 def heavy_lock(path=None):
+    if path is None and LEGACY_LOCK.exists():
+        if not DEFAULT_LOCK.exists() or not os.path.samefile(LEGACY_LOCK,DEFAULT_LOCK):
+            raise RuntimeError('legacy and canonical heavy-worker locks are not the same file; complete the storage migration before starting another worker')
     path = Path(path or DEFAULT_LOCK).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('a+') as handle:
