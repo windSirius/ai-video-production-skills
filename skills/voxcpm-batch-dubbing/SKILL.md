@@ -15,6 +15,8 @@ description: "用本地 VoxCPM/VoxCPM2 生成并修复长篇旁白母带：保�
 
 只接受 `script_manifest.json` 当前绑定的 `口播纯文本.md`。核对稿件 SHA 后再切段；标题、画面锚点、Markdown 和制作旁注不得进入合成文本。
 
+用户明确要求试读改句时，先保存新的正典候选及逐字变更记录，绑定原已批稿、用户原话和新稿 SHA；候选只能进入 `quality_tuning` 小范围试音，不冒用原稿批准进入整批生产。不得为改善合成而擅自填入语气词。
+
 本技能不生成 SRT，不修改正典专名，也不处理视频轨道。操作 VoxCPM 页面时读取 [references/voxcpm-adapter.md](references/voxcpm-adapter.md)；发生发音代理、拼接、修复或版本冲突时读取 [references/authority-and-release.md](references/authority-and-release.md)。
 
 ### 狐久固定声线参考
@@ -44,7 +46,13 @@ generating → machine_verified → awaiting_human_audition → released
 
 ### 1. 切段与生成
 
+狐久后续配音以用户选定的 **E 标准**为默认，读取并把[固定生成参数](references/foxjiu-generation-profile.json)复制到本期不可变输入中，再以 `generation_profile: {path, sha256}` 绑定。采用 VoxCPM2、10 步、CFG 2.0；MPS/float32、参考模式、规范化和种子策略也按记录执行。开场首个种子为 700102，其他块和重试按确定性公式派生并留痕；不能把一个种子视为所有文本的听感保证。E 是听感比较基准，声线仍用无量塔原件。新稿从 E 起步，不例行重跑参数网格，也不擅自升级到 16 步或提高 CFG；确有质量问题时按下述流程局部比较并保留原基线。旧期冻结输入保持原有权威。
+
+质量参数必须显式写入输入清单。使用本机支持的 VoxCPM2 API 时，以 `inference_timesteps=10`、`cfg_value=2.0` 为初始试配基线；这是官方 API 默认值，不是听感保证。已有实际试听通过的配置优先保留，不为低内存或追求速度擅自降低步数、精度或生成块长度。出现起句过快、断句不自然、音色不稳，或用户要求提高生成质量时，执行[参数对比与听感选择](references/quality-tuning.md)，再冻结本期配置；不能把“步数更高”直接写成“质量更好”。
+
 批量生成前先做开头试配，使用正式生成块长度与同一模型配置，实际听开头断句、停顿、专名与语气；专名热点可增加短样段。默认不新增用户审批关卡，由制作方先完成试听并保留实际音频与备注；用户主动要求试听时按其要求处理。试配不通过先局部修复，不能把问题复制到整篇。
+
+如果当前执行者无法接收或实际播放并评估音频，机器检测只能记为机器结果，不得填写“已试听”或韵律 PASS。先完成可做的生成、ASR、信号检查和清楚标注的试听材料，再让用户或已授权且能听音的审核者完成这部分；没有真实听感结论时不启动整批。
 
 生成输入保存为不可变 `source_manifest`，与持续写入的 attempts 日志分开。参考预检通过才可加载模型做试配；整批启动前必须执行 `scripts/verify_voice_reference.py --source-manifest INPUT --phase bulk --smoke-review REVIEW --output-json PREFLIGHT`。`voice_opening_smoke_v2` 的字段见 [v2 契约](../zhangyanfa-video-production/references/submission-contracts-v2.md)。缺少实际试音、绑定失效或停顿审听未完成即失败。参考、正典或生成配置变化后重新试配；续作仍须重跑预检，不能沿用文件名判断。
 

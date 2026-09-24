@@ -56,7 +56,17 @@ def valid_key(key):
     return key
 
 
-def storage_guard(media,cache):
+def cloud_authorized(policy,root,media,cache):
+    if not policy:return False
+    expected={'project_root':str(Path(root).resolve()),'media_root':str(Path(media).resolve()),'cache_base':str(Path(cache).resolve())}
+    if policy.get('schema')!='project_storage_authorization_v1' or policy.get('allow_cloud_cache') is not True or not str(policy.get('user_quote','')).strip():
+        raise ValueError('invalid explicit cloud-storage authorization')
+    if any(policy.get(key)!=value for key,value in expected.items()):
+        raise ValueError('cloud-storage authorization scope does not match this project and roots')
+    return True
+
+
+def storage_guard(media,cache,policy=None,root=None):
     """Enforce a local, explicitly established storage manifest when applicable."""
     workspace=DEFAULT_WORKSPACE.expanduser().resolve()
     manifest=workspace/'00_管理/storage_roots.json'
@@ -64,17 +74,20 @@ def storage_guard(media,cache):
         return
     from audit_storage_layout import audit
     result=audit(manifest)
-    if result['status']!='PASS':
-        raise ValueError('storage layout drift: '+'; '.join(result['errors']))
+    errors=list(result['errors'])
+    if policy and cloud_authorized(policy,root,media,cache):
+        errors=[e for e in errors if e!='local workspace is inside iCloud/File Provider']
+    if errors:
+        raise ValueError('storage layout drift: '+'; '.join(errors))
 
 
-def create(root,episode_key=None,media_root=None,cache_root=None,mode='canonical',legacy_map=None):
+def create(root,episode_key=None,media_root=None,cache_root=None,mode='canonical',legacy_map=None,cloud_cache_user_quote=None):
     root=Path(root).expanduser().resolve()
     key=valid_key(episode_key or 'EP_'+hashlib.sha256(str(root).encode()).hexdigest()[:12])
     path=root/'workspace_paths.json'
     if path.exists():
         prior=load(path)
-        storage_guard(prior['media_root'],prior['cache_base'])
+        storage_guard(prior['media_root'],prior['cache_base'],prior.get('storage_authorization'),root)
         if prior.get('episode_key')!=key or prior.get('mode')!=mode:
             raise ValueError('workspace already has another identity/mode; explicit migration is required')
         if media_root and Path(media_root).expanduser().resolve()!=Path(prior['media_root']).expanduser().resolve():
@@ -84,9 +97,15 @@ def create(root,episode_key=None,media_root=None,cache_root=None,mode='canonical
         return prior
     media=Path(media_root or DEFAULT_MEDIA).expanduser().resolve()
     cache_base=Path(cache_root or DEFAULT_CACHE).expanduser().resolve()
-    storage_guard(media,cache_base)
+    policy=None
+    if cloud_cache_user_quote:
+        policy={'schema':'project_storage_authorization_v1','allow_cloud_cache':True,
+                'user_quote':cloud_cache_user_quote,'recorded_at':datetime.now(timezone.utc).isoformat(),
+                'project_root':str(root),'media_root':str(media),'cache_base':str(cache_base)}
+    allowed=cloud_authorized(policy,root,media,cache_base)
+    storage_guard(media,cache_base,policy,root)
     cache=cache_base/key
-    if is_cloud(cache_base): raise ValueError('cache root must be local, outside iCloud/File Provider')
+    if is_cloud(cache_base) and not allowed: raise ValueError('cache root must be local, outside iCloud/File Provider unless explicitly requested by user')
     if cache_base.is_relative_to(root) or root.is_relative_to(cache_base): raise ValueError('project and cache roots must be separate')
     if media.is_relative_to(cache_base) or cache_base.is_relative_to(media): raise ValueError('durable media and disposable cache must be separate')
     template=load(TEMPLATE)
@@ -124,6 +143,7 @@ def create(root,episode_key=None,media_root=None,cache_root=None,mode='canonical
            'media_root':str(media),'cache_root':str(cache),'cache_base':str(cache_base),
            'template_sha256':digest(TEMPLATE),'created_at':datetime.now(timezone.utc).isoformat(),
            'legacy_map':mapping,'navigation_is_authority':False}
+    if policy:value['storage_authorization']=policy
     catalog=root.parent.parent/'00_制作管理'/'项目索引.json'
     if catalog.is_file():value['navigation_catalog']=str(catalog)
     write_json(path,value)
@@ -133,7 +153,7 @@ def create(root,episode_key=None,media_root=None,cache_root=None,mode='canonical
 
 def resolve(root,kind,version=None):
     root=Path(root).resolve();config=load(root/'workspace_paths.json')
-    storage_guard(config['media_root'],config['cache_base'])
+    storage_guard(config['media_root'],config['cache_base'],config.get('storage_authorization'),root)
     if kind=='media':base=Path(config['media_root'])
     elif kind.startswith('cache:'):
         sub=kind.partition(':')[2]
@@ -223,16 +243,16 @@ def sync_catalog(root,config,title,delivery_index):
         if (DEFAULT_WORKSPACE/'00_开始这里.md').is_file():
             lines+=['',link('统一视频工作区',DEFAULT_WORKSPACE/'00_开始这里.md')]
         generated_text(management/'00_开始这里.md','\n\n'.join(lines[:2])+'\n\n'+'\n'.join(lines[2:])+'\n')
-        sync_storage_portal(catalog,rows)
+        sync_storage_portal(catalog,rows,config.get('storage_authorization'),root)
 
 
-def sync_storage_portal(catalog,rows):
+def sync_storage_portal(catalog,rows,policy=None,project_root=None):
     """Keep the configured central project/delivery entrance current, without copying media."""
     workspace=DEFAULT_WORKSPACE.expanduser().resolve();manifest=workspace/'00_管理/storage_roots.json'
     if not manifest.is_file():return
     storage=load(manifest)
     if not storage.get('project_catalog') or Path(storage['project_catalog']).resolve()!=Path(catalog).resolve():return
-    storage_guard(storage['media_root'],storage['cache_root'])
+    storage_guard(storage['media_root'],storage['cache_root'],policy,project_root)
     lines=['# 项目与交付入口','','这里自动跟随项目目录索引更新；原审批和文件权威不变。','',
            '| 期号 | 题目 | 项目 | 文件索引 | 本地处理 |','|---|---|---|---|---|']
     for row in rows:
@@ -261,7 +281,7 @@ def refresh(root):
     viewroot=root if config['mode']=='canonical' else root/'00_工作台'
     for kind,label in config['project_dirs'].items():body.append(f'| {label} | {link("打开",viewroot/label)} |')
     body+=['','## 素材与缓存','',f'- {link("共用原始素材库",config["media_root"])}：永久素材，不是可删除缓存。',
-           f'- {link("本期本地缓存",config["cache_root"])}：中间处理目录；清理仍需核验与明确授权。',
+           f'- {link("本期处理缓存",config["cache_root"])}：中间处理目录；清理仍需核验与明确授权。',
            '- 本期引用素材的来源、实际路径与 SHA 记在素材清单；不要为每期复制同一部官方视频。']
     delivery=['# 文件索引','本页只引用已有文件，不复制母版，不授予新的审批。',
               '## 总控登记文件','','| 文件角色 | 位置 | 记录情况 |','| --- | --- | --- |']
@@ -313,12 +333,17 @@ def refresh(root):
 
 def doctor(root):
     root=Path(root).resolve();config=load(root/'workspace_paths.json');errors=[];warnings=[]
-    try:storage_guard(config['media_root'],config['cache_base'])
+    policy=config.get('storage_authorization')
+    try:storage_guard(config['media_root'],config['cache_base'],policy,root)
     except (ValueError,OSError,KeyError,TypeError) as exc:errors.append(str(exc))
     if config.get('project_root')!=str(root):errors.append('project moved without updating its workspace contract')
     owner=Path(config['cache_root'])/'owner.json'
     if not owner.is_file() or load(owner).get('project_root')!=str(root):errors.append('cache ownership mismatch')
-    if is_cloud(Path(config['cache_root']).resolve()):errors.append('cache is under iCloud/File Provider')
+    if is_cloud(Path(config['cache_root']).resolve()):
+        try:
+            if cloud_authorized(policy,root,config['media_root'],config['cache_base']):warnings.append('cloud cache explicitly requested by user for this project')
+            else:errors.append('cache is under iCloud/File Provider')
+        except ValueError as exc:errors.append(str(exc))
     viewroot=root if config['mode']=='canonical' else root/'00_工作台'
     for label in config['project_dirs'].values():
         if not(viewroot/label).is_dir():errors.append('missing category: '+label)

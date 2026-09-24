@@ -18,7 +18,7 @@ skills/
 ├── voxcpm-batch-dubbing/         # 固定声线、开头试配、分段生成与母带释放
 ├── subtitle-timeline/            # 用户最终时间轴、语义断句、整数帧契约
 ├── zhangyanfa-track-design/      # A/B/C 逐字幕配画、固定审核 UI、全片复用检查
-├── zhangyanfa-score-and-mix/     # BGM 候选、选择绑定、旁白避让与全长混音
+├── zhangyanfa-score-and-mix/     # 曲库索引、跨期去重、候选与全长混音
 ├── zhangyanfa-track-renderer/    # 720p 审片、单工 2K60 渲染、断点恢复和 QA
 └── zhangyanfa-cover-production/ # 六个不同封面方案及选定后的多画幅制作
 ```
@@ -75,6 +75,18 @@ python tools/install_skills.py --apply
 狐久参考记录中的 `~/` 指当前用户主目录，参考校验器会展开路径，并输出实际文件绑定。仓库只包含经授权发布的参考规则，不附带私人音频；原件或备份必须通过相同 SHA 校验。缺少参考时不能用往期母带替代。其他作者需要独立、明确授权并测试的规则配置，不能以换路径的方式绕过狐久固定声线检查。
 
 BGM 按冻结的 `source_mode` 审查：本地音乐库模式核对配置后的音乐根目录，明确授权的生成配乐模式核对生成来源；两者都须经试听、选定和最终混音检查。
+
+BGM 候选先盘点原有曲库的实际评估覆盖，再补有关的新曲；索引文件不等于听过，未用过的旧收藏也属于新的候选选择。按作品身份合并转码、裁切和去旋律版本，分别记录历期展示与最终选择。新候选默认从 12 首作品中形成四套方向，检查近三期复用与配器差异；提交前复核实际试听源曲 SHA。题材需要的主题回归可说明理由，不追溯改变旧项目的审批。见 [曲库与去重规则](skills/zhangyanfa-score-and-mix/references/library-and-diversity.md)。
+
+## 本轮迭代：写作、配音和视觉复用
+
+- **口播写作**：先核对标题、钩子和结尾的承诺，再检查因果与人物心理；补足段内承接，避免重复解释和“分量”等空泛评价。推断类正文连续推进，研究中的反证与缺口保留在非口播材料，必要限定集中收束。见 [写作模块](skills/game-lore-script/SKILL.md)。
+- **配音**：狐久采用已选 E 配置作为起点（VoxCPM2、10 步、CFG 2.0），绑定参数、种子策略及原固定参考；试配参数通过不替代新文本的开头试听和完整母带审批。见 [质量调校](skills/voxcpm-batch-dubbing/references/quality-tuning.md)。
+- **配画与证据卡**：查库及指定来源后仍缺直接画面时，按已有授权由 B 轨的可靠原文承接；A 保持相关游戏画面。B/C 使用简体新青年体、固定尺寸及可追溯来源，字体需自行准备。见 [缺画面回退](skills/game-footage-ingest-index/references/foxjiu-missing-footage-fallback.md)与[证据卡模板](skills/zhangyanfa-track-design/references/foxjiu-evidence-card-style.md)。
+- **封面**：默认 P2 撕页考据手账，使用官方主体与本地排字；六稿选定后分别重排 4:3、3:4，绑定已展示文件审批。见 [书页封面规范](skills/zhangyanfa-cover-production/references/foxjiu-cover-typography.md)。
+- **存储与执行**：显式云端存储请求可通过 `workflow.py init --cloud-cache-user-quote` 绑定本项目及实际根目录；断链、素材/缓存分离、旧权威与渲染资源检查继续生效。修复重任务取消时重复等待子进程的死锁，以及倒序使用不重叠原片段时的重叠误报。
+
+这些偏好约束后续创作，不回写旧项目的冻结契约、审批或媒体。
 
 ## 开发与验证
 

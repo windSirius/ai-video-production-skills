@@ -1,0 +1,42 @@
+{
+  "schema": "foxjiu_generation_profile_v1",
+  "profile_id": "foxjiu_E_v1",
+  "selection_status": "user_selected_default",
+  "selected_at_date": "2026-09-18",
+  "selection_quote": "个人感觉E效果更好，以后以E为标准",
+  "generation_config": {
+    "model": "VoxCPM2",
+    "mode": "Ultimate Cloning",
+    "device": "mps",
+    "dtype": "float32",
+    "optimize": false,
+    "inference_timesteps": 10,
+    "cfg_value": 2.0,
+    "normalize": false,
+    "denoise": false,
+    "retry_badcase": false
+  },
+  "seed_policy": {
+    "base": 700001,
+    "block_stride": 100,
+    "block_index_origin": 1,
+    "attempt_index_origin": 1,
+    "formula": "base + block_stride * block_index + attempt_index",
+    "opening_first_attempt_seed": 700102
+  },
+  "expected_output_sample_rate": 48000,
+  "generation_block_preferred_spoken_chars": [
+    120,
+    180
+  ],
+  "fixed_voice_reference_sha256": "6c67d48957370ccf0f4499b664c748474d7db2a993f2601d1ded147c9d957e41",
+  "listening_benchmark": {
+    "trial_id": "E",
+    "audio_sha256": "07bf44ce619f1eed103e7a985703cdd5c8e20b7a36f7124a273f6495f4a953a1",
+    "duration_seconds": 24.8,
+    "integrated_lufs": -22.0,
+    "role": "listening comparison only; fixed voice reference remains unchanged",
+    "workspace_relative_path": "02_素材库/固定配音参考/听感基准/E_10步_CFG2.0.wav"
+  },
+  "scope_note": "Use the user-selected E settings as the starting standard. A matching seed reproduces this take only with the same text and runtime. New text still needs lexical, signal and actual listening review. The audition loudness is not a replacement for the frozen final-master mix specification."
+}

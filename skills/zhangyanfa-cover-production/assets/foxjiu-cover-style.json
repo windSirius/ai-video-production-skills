@@ -1,0 +1,124 @@
+{
+  "schema": "foxjiu_cover_style_v3",
+  "scope": "Foxjiu zhangyanfa lore-research covers",
+  "visual_direction": "tactile torn-paper research notebook with native game photo and vermilion question label",
+  "language": "zh-Hans",
+  "headline": {
+    "preferred_family": "文悦新青年体",
+    "preferred_style": "J W8",
+    "filename_hint": "WenYue_XinQingNianTi_J-W8.otf",
+    "verify_actual_font_identity": true,
+    "silent_font_fallback": false
+  },
+  "paper_material": {
+    "dominant_surface_required": true,
+    "features_choose": [
+      "paper_fibers",
+      "page_edge",
+      "curled_corner",
+      "torn_edge",
+      "binding_gutter",
+      "layered_pages"
+    ],
+    "decorative_checkerboard": false,
+    "generated_layer_scope": "blank paper only; original game identity and local typography composed separately",
+    "default_features": [
+      "paper_fibers",
+      "torn_edge",
+      "binding_holes",
+      "sparse_tape_or_curled_corner"
+    ]
+  },
+  "palette_starting_points": {
+    "premise": "#241d1a",
+    "central_question": "#b32622",
+    "paper": "#e6cc9f",
+    "on_red_label": "#fff0d2",
+    "small_print": "#665142"
+  },
+  "minimum_title_safe_fraction": 0.035,
+  "preview_widths": [
+    320,
+    640
+  ],
+  "required_design_checks": [
+    "whole-page material visible",
+    "new-youth font identity",
+    "Simplified Chinese glyphs",
+    "strong title hierarchy and contrast",
+    "official subject intact",
+    "thumbnail readability",
+    "independent ratio composition"
+  ],
+  "font_file_redistribution": false,
+  "project_local_profile_snapshot_required": true,
+  "existing_frozen_contracts_modified": false,
+  "default_variant": "p2_torn_paper_research_notebook",
+  "photo_treatment": {
+    "native_subject_required": true,
+    "uniform_scale_only": true,
+    "cream_paper_border": true,
+    "subtle_drop_shadow": true,
+    "rotation_degrees_start": [
+      -3,
+      -2
+    ]
+  },
+  "layout_presets": {
+    "16:9": {
+      "size": [
+        2560,
+        1440
+      ],
+      "tear_axis": "vertical",
+      "composition": "left headline; right photo",
+      "photo_xywh_fraction": [
+        0.547,
+        0.163,
+        0.363,
+        0.708
+      ],
+      "headline": "two staggered short rows",
+      "question_label": "lower left",
+      "reference": "assets/foxjiu-paper-notebook/16_9.png"
+    },
+    "4:3": {
+      "size": [
+        2400,
+        1800
+      ],
+      "tear_axis": "vertical",
+      "composition": "left headline; taller right photo",
+      "photo_xywh_fraction": [
+        0.542,
+        0.186,
+        0.375,
+        0.644
+      ],
+      "headline": "two staggered rows with more vertical separation",
+      "question_label": "lower left",
+      "reference": "assets/foxjiu-paper-notebook/4_3.png"
+    },
+    "3:4": {
+      "size": [
+        1800,
+        2400
+      ],
+      "tear_axis": "horizontal",
+      "composition": "upper photo; lower headline",
+      "photo_xywh_fraction": [
+        0.144,
+        0.096,
+        0.711,
+        0.438
+      ],
+      "headline": "one short horizontal line below photo when readable",
+      "question_label": "wide label below headline",
+      "reference": "assets/foxjiu-paper-notebook/3_4.png"
+    }
+  },
+  "layout_values_are_starting_points": true,
+  "per_episode_subject_and_copy_required": true,
+  "six_narrative_concepts_still_required": true,
+  "sample_provenance": "assets/foxjiu-paper-notebook/provenance.json"
+}

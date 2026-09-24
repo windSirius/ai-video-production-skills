@@ -58,6 +58,39 @@ class VoicePreflightTest(unittest.TestCase):
         self.audio.write_text('changed bytes')
         self.assertFalse(verify(self.source,self.rule,'bulk',self.smoke)['passed'])
 
+    def test_bound_profile_rejects_parameter_seed_or_profile_drift(self):
+        seed = {'base': 700001, 'block_stride': 100}
+        profile = self.write('profile.json', {
+            'schema': 'foxjiu_generation_profile_v1',
+            'fixed_voice_reference_sha256': binding(self.audio)['sha256'],
+            'generation_config': {'inference_timesteps': 10, 'cfg_value': 2.0},
+            'seed_policy': seed,
+        })
+        self.source_data.update(generation_profile=binding(profile), seed_policy=seed)
+        self.source_data['generation_config'].update(inference_timesteps=10, cfg_value=2.0)
+        self.write('source.json', self.source_data)
+        self.assertTrue(verify(self.source, self.rule)['passed'])
+        self.source_data['generation_config']['inference_timesteps'] = 16
+        self.write('source.json', self.source_data)
+        self.assertFalse(verify(self.source, self.rule)['passed'])
+        self.source_data['generation_config']['inference_timesteps'] = 10
+        self.source_data['seed_policy'] = {'base': 1}
+        self.write('source.json', self.source_data)
+        self.assertFalse(verify(self.source, self.rule)['passed'])
+        self.source_data['seed_policy'] = seed
+        self.write('source.json', self.source_data)
+        profile.write_text('{}')
+        self.assertFalse(verify(self.source, self.rule)['passed'])
+
+    def test_tuning_input_cannot_start_bulk_even_with_matching_smoke(self):
+        for fields in ({'purpose': 'quality_tuning'}, {'purpose': 'quality_tuning_only'}, {'bulk_authorized': False}):
+            with self.subTest(fields=fields):
+                self.write('source.json', {**self.source_data, **fields})
+                self.smoke_data['source_manifest'] = binding(self.source)
+                self.write('smoke.json', self.smoke_data)
+                self.assertTrue(verify(self.source, self.rule)['passed'])
+                self.assertFalse(verify(self.source, self.rule, 'bulk', self.smoke)['passed'])
+
     def test_portable_home_paths_bind_to_real_files_and_still_check_sha(self):
         self.source_data['reference_audio'] = '~/voice.wav'
         for key in ('prompt_wav_path', 'reference_wav_path'):

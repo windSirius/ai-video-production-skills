@@ -1,0 +1,39 @@
+{
+  "schema": "foxjiu_evidence_card_style_v1",
+  "style_id": "foxjiu-ink-archive-xinqingnian-v1",
+  "canvas": [2560, 1440],
+  "font": {
+    "filename": "WenYue_XinQingNianTi_J-W8.otf",
+    "family": "WenYue XinQingNianTi J",
+    "style": "W8",
+    "sha256": "bf7182e6da0d84551023edfbb4242280752902bd06807a156050122df8875a70",
+    "bundled": false,
+    "scope": "All production-added B/C text; preserve source screenshots and native-game text"
+  },
+  "geometry": {
+    "B_native": {"x": 96, "y": 830, "width": 2368, "height": 490},
+    "B_transcription": {"x": 96, "y": 816, "width": 2368, "height": 504},
+    "B_portrait": {"x": 96, "y": 640, "width": 2368, "height": 680},
+    "C_relation": {"x": 96, "y": 1110, "width": 2250, "height": 200}
+  },
+  "palette": {
+    "panel": "#171B1C",
+    "panel_alpha": 247,
+    "text": "#F2E8D5",
+    "title": "#D6BE8B",
+    "source": "#C4BAA7",
+    "line": "#776747",
+    "accent": "#A94E3A"
+  },
+  "typography": {
+    "B_title_px": 50,
+    "B_body_px": 62,
+    "B_body_min_px": 54,
+    "B_source_px": 34,
+    "C_title_px": 32,
+    "C_body_px": 50
+  },
+  "drawing": {"corner_radius": 10, "border_px": 2, "inner_padding_px": 48},
+  "user_basis": "GI71_EP005: B card size accepted; request for Xinqingnian typeface and a reusable lore-research atmosphere.",
+  "design_intent": "Ink-dark archive panel, warm ivory quotations, restrained brass rules and cinnabar emphasis. No fake official seals, manuscript wear, or invented provenance."
+}

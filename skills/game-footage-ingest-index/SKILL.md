@@ -46,7 +46,7 @@ sources/ingest_qa.json
 - 完整录屏的索引覆盖首帧至尾帧；加载、菜单、失败重试和 UI 先分类，不能静默删除。
 - `ocr_asr_index.tsv` 必须覆盖每个 `shot_id`；`coverage_receipts.jsonl` 逐源绑定 source SHA，并用分类区间无缝覆盖 `[0,duration_s]`。
 - 人物库保存 canonical 证明帧、可见特征和易混淆对象；OCR 或对白出现名字不能证明画面人物身份。
-- `p0_coverage.tsv` 必须逐项写 `available | acquire | card | remove`，同时写目标轨道；`card` 只可用于经允许的 B 轨证据转录，不能解决 A 轨缺画面。删句需走稿件/时间轴变更，不能在素材模块偷偷删。
+- `p0_coverage.tsv` 必须逐项写 `available | acquire | card | remove`，同时写目标轨道。狐久已授权确实找不到的剧情画面统一转 B 轨，按[缺画面转 B 规则](references/foxjiu-missing-footage-fallback.md)记录检索、原文与转轨决定，不逐条重复申请转录许可。B 卡可承接直接证据，不能伪装成 A 镜头或掩盖文字证据缺失；另核验 A 上下文画面的覆盖。删句仍需走稿件/时间轴变更。
 - 新素材加入后重新探测并增量索引；文件名和缩略图不能代替实际检查。
 - `permission_needed` 或 `unknown` 的素材不得进入正式轨道；只有权利已经查明，或用户确认自己拥有该素材并有权用于成片时，才能改写权限状态后使用。
 

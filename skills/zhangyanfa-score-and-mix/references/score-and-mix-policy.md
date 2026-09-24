@@ -13,7 +13,7 @@ candidate_id source_mode vocal_content duck_ranges transition_reason
 
 默认四套 A–D 候选。使用同一旁白 SHA、同一试听范围、同一基准响度与相同淡入淡出，避免把音量差误判成情绪优劣。候选应体现真正不同的情绪或配器方向，而不是只换同一首曲子的起点。
 
-四个 audition mix 的文件 SHA 必须互不相同；章节区间必须首段从 0 开始、相邻首尾相接、末段等于目标帧数，并逐段写所选 `candidate_id`。
+四个 audition mix 的文件 SHA 必须互不相同；还要按[曲库与去重规则](library-and-diversity.md)核验原曲作品身份和近几期复用，改变混音 SHA 不等于新曲。章节区间必须首段从 0 开始、相邻首尾相接、末段等于目标帧数，并逐段写所选 `candidate_id`。
 
 ## 来源
 

@@ -207,6 +207,29 @@ class VisualModuleTests(unittest.TestCase):
         write_tsv(plan, fields, rows)
         self.assertFail(run(script, *args), "A per_caption_refresh")
 
+    def test_reverse_source_order_only_blocks_actual_interval_overlap(self) -> None:
+        script = ROOT / "zhangyanfa-track-design/scripts/audit_track_plan.py"
+        args, identity, shot_index, rows = self.track_fixture()
+        plan = Path(args[0])
+        with plan.open(encoding="utf-8") as handle:
+            fields = next(csv.reader(handle, delimiter="\t"))
+        rows[0][8:10] = [3, 4]
+        rows[2][8:10] = [4, 5]
+        write_tsv(plan, fields, rows)
+        shot_fields = ["shot_id", "source_id", "start_s", "end_s", "visual_family_id"]
+        write_tsv(shot_index, shot_fields, [
+            ["sh1", "s1", 3, 4, "fam1"], ["sh2", "s1", 1, 2, "fam2"],
+            ["sh3", "s1", 4, 5, "fam3"],
+        ])
+        self.assertPass(run(script, *args))
+        rows[0][8:10] = [1.5, 2.5]
+        write_tsv(plan, fields, rows)
+        write_tsv(shot_index, shot_fields, [
+            ["sh1", "s1", 1.5, 2.5, "fam1"], ["sh2", "s1", 1, 2, "fam2"],
+            ["sh3", "s1", 4, 5, "fam3"],
+        ])
+        self.assertFail(run(script, *args), "A per_caption_refresh")
+
     def bgm_fixture(self) -> tuple[list[str], Path, Path]:
         narration = self.base / "narration.wav"
         narration.write_bytes(b"narration")

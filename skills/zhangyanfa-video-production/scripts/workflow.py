@@ -325,6 +325,43 @@ def approval_quote_is_explicit(role: str, quote: str) -> bool:
         return False
     if APPROVAL_SIGNAL.search(normalized):
         return True
+    # A completed 1x audition followed by explicit adoption of the supplied
+    # subtitle timeline accepts the displayed narration. Keep this scoped to
+    # narration; presentation, SHA, and voice-release checks still apply.
+    if role == "narration" and re.fullmatch(
+        r"以\s*(?:\*\*)?1[×xX]\s*(?:速度)?完整听完[，,、\s]*"
+        r"初版字幕[已以]加载[，,\s]*按照初版字幕的时间轴冻结[，,\s]*"
+        r"然后修复字幕(?:\*\*)?[。！! ]*", normalized,
+    ):
+        return True
+    # Adopting an already displayed cover design is a scoped decision.
+    # The normal artifact/SHA/presentation checks still apply; this phrase
+    # must not release narration, video, or an unshown derivative.
+    if role in {"cover_16_9", "cover_4_3", "cover_3_4"} and re.fullmatch(
+        r"(?:OK|好的?|可以)[，,\s]*保留(?:这个|这套|当前)(?:设计|方案|排版)[。！! ]*",
+        normalized, re.I,
+    ):
+        return True
+    # Explicitly adopting a displayed script variant is a selection, not a work request.
+    if role == "script" and re.fullmatch(r"(?:以后|后续)?以\s*[A-F]\s*为(?:标准|准)[。！! ]*", normalized):
+        return True
+    # Explicit adoption of the displayed version, scoped to the script only.
+    # Presentation and byte bindings still have to be verified independently.
+    if role == "script" and re.fullmatch(
+        r"(?:非常好|很好|好的|OK)[，,\s]*直接按照(?:这个|这一)(?:版本|版)[，,\s]*"
+        r"(?:进入下一步|开始配音|进入配音)[。！! ]*", normalized, re.I,
+    ):
+        return True
+    # Selecting one's edited manuscript and explicitly requesting its next stage
+    # is a scoped script decision, not a bare request to start work.
+    if role == "script" and re.fullmatch(
+        r"(?:我(?:修改|调整)[^，,。！？!?\n]{0,20}[，,。 ]*)?"
+        r"(?:请)?按(?:照)?(?:我)?(?:修改|调整)后(?:的)?"
+        r"(?:口播纯文本|口播稿|稿件|文本)[，,。 ]*"
+        r"(?:进入下一步|开始配音|进入配音)[。！! ]*",
+        normalized,
+    ):
+        return True
     if role in {"split_delivery", "final_video", "cover_16_9", "cover_4_3", "cover_3_4"} and re.search(
         r"(?:这期|本期|视频|交付).{0,12}(?:结束了|完成了|做好了)", normalized
     ):
@@ -1287,7 +1324,8 @@ def command_init(args: argparse.Namespace) -> int:
             "house_style": house_style,
         }
         if house_style.get('workspace_layout', {}).get('version') == 1:
-            workspace.create(root, args.episode_key, args.media_root, args.cache_root)
+            workspace.create(root, args.episode_key, args.media_root, args.cache_root,
+                             cloud_cache_user_quote=args.cloud_cache_user_quote)
             request_contract['workspace_layout'] = {'path':'workspace_paths.json', 'sha256':sha256_file(root/'workspace_paths.json')}
         atomic_write_json(paths["request_contract"], request_contract)
         authority = {
@@ -1874,6 +1912,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument('--episode-key', help='Stable ASCII key, e.g. GI71_EP004; use across the cache and asset index')
     init.add_argument('--media-root', help='Durable common media library; default ~/Documents/视频工作区/02_素材库/00_原始素材库')
     init.add_argument('--cache-root', help='Local cache base; default ~/Documents/视频工作区/03_制作缓存')
+    init.add_argument('--cloud-cache-user-quote', help='Exact explicit user request for cloud storage; scoped to this new project only')
     init.set_defaults(func=command_init)
 
     status = subparsers.add_parser("status", help="show current stage and gate")

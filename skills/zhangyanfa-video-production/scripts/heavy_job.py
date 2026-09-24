@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import time
 
 DEFAULT_LOCK = Path.home()/'Documents/视频工作区/03_制作缓存/.foxjiu-heavy-worker.lock'
 LEGACY_LOCK = Path.home()/'Documents/视频制作缓存/.foxjiu-heavy-worker.lock'
@@ -39,18 +40,28 @@ def run(command):
     with heavy_lock() as fd:
         process = subprocess.Popen(command, start_new_session=True, pass_fds=(fd,))
         old_handlers = {}
+        stop_request = None
         def stop(signum, frame):
+            nonlocal stop_request
+            if stop_request is not None:
+                return
+            stop_request = (signum, time.monotonic())
             try: os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError: pass
-            try: process.wait(timeout=8)
-            except subprocess.TimeoutExpired:
-                try: os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError: pass
-                process.wait()
-            raise SystemExit(128+signum)
+            # Never re-enter Popen.wait from a signal handler: it may already
+            # hold its non-reentrant wait lock. Reap from the main loop.
         for signum in (signal.SIGTERM, signal.SIGINT):
             old_handlers[signum] = signal.signal(signum, stop)
-        try: return process.wait()
+        try:
+            while True:
+                if stop_request and time.monotonic() - stop_request[1] >= 8:
+                    try: os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError: pass
+                try:
+                    result = process.wait(timeout=0.25)
+                    return 128 + stop_request[0] if stop_request else result
+                except subprocess.TimeoutExpired:
+                    continue
         finally:
             for signum, handler in old_handlers.items(): signal.signal(signum, handler)
 

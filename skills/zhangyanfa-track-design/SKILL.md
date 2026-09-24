@@ -28,6 +28,8 @@ description: 在最终 SRT 和整数帧时钟冻结后，为每条字幕设计�
 
 读取 [matching-and-cut-policy.md](references/matching-and-cut-policy.md) 设计 A 轨；需要 B/C、证据卡、绿幕或 alpha 时读取 [auxiliary-track-grammar.md](references/auxiliary-track-grammar.md)。
 
+狐久 B/C 卡片使用[新青年体考据卡规范](references/foxjiu-evidence-card-style.md)：制作方文字全用简体文悦新青年体 J W8，继承第五期获准的外框尺寸，采用墨底、暖白正文、暗金细线和朱砂重点。用随附模板与渲染器复用；返修必须核对尺寸、字体真实字形和实际 A 画面叠加，不能只改字体名称或只验孤立卡片。原生截图文字保留原样。
+
 ## 逐字幕换镜
 
 默认 `cut_policy=per_caption_refresh`：
@@ -56,7 +58,7 @@ confusables_checked identity_verdict reviewer review_status
 
 - 普通且身份明确的 cue 保留已选镜头和必要 fallback，不再固定建立 8–12 个候选。
 - 人物、P0、直接引文、高风险、低置信或用户点名行才要求 A/B/C 比较与头/中/尾证明。
-- 找不到合格 A 轨镜头时回到素材模块补源；经许可的转录证据卡放 B 轨。不得用 `support` 掩盖人物错误或 P0 缺口。
+- 狐久明确指定用 B 卡，或按[缺画面转 B 规则](../game-footage-ingest-index/references/foxjiu-missing-footage-fallback.md)确认原画面找不到时，将直接证据责任转 B，无需重复申请同种替代许可。A 使用相关游戏环境或反应镜头并注明上下文用途；身份核验只检查 A 实际宣称出现的人物，不把已转 B 的原生事件当成未解决的 A 身份命中任务。保留 A 全时长、切镜与复用检查，卡片不烘进 A；文字未核或上下文无关的真实缺口仍须解决。
 
 ## 分轨审核
 
@@ -103,3 +105,4 @@ tracks/review/C/
 - `scripts/audit_track_plan.py`：以 `(track,cue_id)` 审核 TSV；reviewed 阶段同时读取 shot index、rights ledger、逐轨审核清单/审批账和最终 cue 数。
 
 - `scripts/audit_global_reuse.py`：在全部选镜完成后统计整片物理镜头复用，合并跨文件原片区间与已核验别名；近似画面仍须视觉复核。
+- `scripts/render_evidence_cards.py`：读取卡片清单和固定样式，核实字体 SHA/字形，保留外框尺寸，输出新版本 alpha、全帧绿幕和文字边界收据；不改写原始清单或证据。

@@ -329,7 +329,7 @@ def main() -> int:
             refreshed = truthy(current_row.get("refresh_from_previous"))
             same_shot = current_row.get("shot_id", "").strip() == previous_row.get("shot_id", "").strip()
             same_source = current_row.get("source_id", "").strip() == previous_row.get("source_id", "").strip()
-            overlaps_source = same_source and current[5] < previous[6] - FLOAT_TOLERANCE
+            overlaps_source = same_source and max(current[5], previous[5]) < min(current[6], previous[6]) - FLOAT_TOLERANCE
             same_family = (
                 current_row.get("visual_family_id", "").strip()
                 == previous_row.get("visual_family_id", "").strip()

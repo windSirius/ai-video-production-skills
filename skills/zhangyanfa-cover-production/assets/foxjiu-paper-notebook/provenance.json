@@ -1,0 +1,29 @@
+{
+  "purpose": "User-approved style references; not reusable game evidence or blanket footage permission",
+  "reference_project": "GI71_EP005",
+  "user_style_quote": "OK保留这个设计，把这个迭代进skill",
+  "game_frame_credit": "原神，录屏：星阳希",
+  "game_frame_source": "https://www.bilibili.com/video/BV1Tagj6QEGG/?p=4",
+  "paper_background": "Generated using built-in ImageGen; local deterministic layout",
+  "font": "文悦新青年体 J W8; raster previews only, font file not distributed",
+  "examples": [
+    {
+      "ratio": "16:9",
+      "preview": "16_9.png",
+      "sha256": "34a067e4948c7b66faefe8e65549313d5d04e636fd6afa80de8de319687e9921",
+      "source_approved_fullsize_sha256": "d722d8023f665ea45d4c820aaea7a8042cd46c98b42e2226876477b32d50e959"
+    },
+    {
+      "ratio": "4:3",
+      "preview": "4_3.png",
+      "sha256": "9bd75cb94c2ac046808fdcf7d567b05f74368d7902a0be0ceecfa6ee6d60bbc4",
+      "source_approved_fullsize_sha256": "f57fddfcd54d6241edc93d1146af9dcf882c92006fd5d1b94bfef1e125db085e"
+    },
+    {
+      "ratio": "3:4",
+      "preview": "3_4.png",
+      "sha256": "6d1cb097c5024a1099819bb6d4795f199cd8fdbe7b58ab3fbc8abefbb72eeed6",
+      "source_approved_fullsize_sha256": "a4225fd3350916694f2e7dc492df8d78520a8c5039e97137815e2932e2d0a9a4"
+    }
+  ]
+}

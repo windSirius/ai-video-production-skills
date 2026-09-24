@@ -15,7 +15,7 @@
 
 | 文件/库 | 版本范围 | 实际用途 |
 | --- | --- | --- |
-| `requirements.txt`：Pillow | `>=12.3.0,<13` | `build_shot_index.py`、旧候选联系表、封面尺寸和比例检查 |
+| `requirements.txt`：Pillow | `>=12.3.0,<13` | 镜头联系表、`render_evidence_cards.py` 的 B/C 排版、封面尺寸和比例检查 |
 | `requirements-dev.txt`：PyYAML | `>=6.0.3,<7`，并包含基础依赖 | 解析 Skill frontmatter、agents 元数据与仓库 YAML，拒绝重复键 |
 | `requirements-legacy.txt`：certifi | `>=2026.7.22`，并包含基础依赖 | 旧 `fetch_bilibili_season.py` 的可选 CA 证书；没有时使用系统信任库 |
 | FunASR | 由独立 ASR 环境固定 | 仅 `transcribe_sensevoice.py` 执行真实转写时延迟导入；`--help` 不加载它 |
@@ -27,6 +27,8 @@ python -m pip install -r requirements-dev.txt
 python -m pip check
 python tools/doctor.py --dev
 ```
+
+证据卡工具只新增 Pillow 用途，字体 cmap 检查使用标准库；曲库索引使用 FFprobe，未增加 Python 依赖。文悦新青年体 J W8 需用户自行准备，仓库只保存字体身份与 SHA，不分发字体或参考配音。E 参数配置不捆绑 VoxCPM2 模型，也不代表所有设备都支持该推理配置。
 
 ## 系统工具
 

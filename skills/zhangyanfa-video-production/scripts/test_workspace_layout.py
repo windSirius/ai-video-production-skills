@@ -94,6 +94,26 @@ class WorkspaceTest(unittest.TestCase):
         for cache in (self.base/'Mobile Documents/com~apple~CloudDocs/cache', self.root/'cache', self.media/'cache'):
             with self.assertRaises(ValueError):ws.create(self.root,'GI71_EP004',self.media,cache)
 
+    def test_user_cloud_request_is_project_scoped_and_preserves_other_guards(self):
+        workspace=self.base/'Mobile Documents/workspace'
+        media=workspace/'media';cache=workspace/'cache'
+        media.mkdir(parents=True);cache.mkdir();(workspace/'00_管理').mkdir()
+        alias=self.base/'old-cache';alias.symlink_to(cache,target_is_directory=True)
+        (workspace/'00_管理/storage_roots.json').write_text(json.dumps({
+            'schema':'video_storage_roots_v1','workspace_root':str(workspace),
+            'media_root':str(media),'cache_root':str(cache),
+            'legacy_aliases':[{'source':str(alias),'target':str(cache)}]}))
+        with patch.object(ws,'DEFAULT_WORKSPACE',workspace):
+            with self.assertRaises(ValueError):ws.create(self.root,'GI71_EP004',media,cache)
+            config=ws.create(self.root,'GI71_EP004',media,cache,cloud_cache_user_quote='全部都放在icloud路径')
+            self.assertEqual(ws.doctor(self.root)['status'],'PASS')
+            self.assertTrue(ws.doctor(self.root)['warnings'])
+            self.assertEqual(ws.new_version(self.root,'voice').name,'v001')
+            with self.assertRaises(ValueError):ws.create(self.base/'another','GI71_EP005',media,cache)
+            with self.assertRaises(ValueError):ws.cloud_authorized(config['storage_authorization'],self.base/'another',media,cache)
+            alias.unlink();alias.mkdir()
+            with self.assertRaisesRegex(ValueError,'storage layout drift'):ws.new_version(self.root,'cache:voice')
+
     def test_controller_rejects_wrong_folder_and_tracks_contract_drift(self):
         self.initialize();config=json.loads((self.root/'workspace_paths.json').read_text())
         contract=json.loads((self.root/'request_contract.json').read_text())

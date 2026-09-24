@@ -77,7 +77,11 @@
     "semantic_color_roles_required": true,
     "official_identity_route": "deterministic_source",
     "ai_redraw_official_subject": false,
-    "embedded_one_frame_cover": false
+    "embedded_one_frame_cover": false,
+    "typography_profile": "zhangyanfa-cover-production/assets/foxjiu-cover-style.json",
+    "text_language": "zh-Hans",
+    "visual_surface": "physical_book_page",
+    "default_style_variant": "p2_torn_paper_research_notebook"
   },
   "delivery_defaults": {
     "production_contract_version": 2,

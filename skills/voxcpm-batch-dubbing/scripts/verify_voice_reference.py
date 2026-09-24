@@ -51,10 +51,33 @@ def verify(source_path, rule_path, phase="reference", smoke_review=None):
             failures.append(label + ": text differs from the exact user transcript")
     if source.get("reference_rule_sha256") != digest(rule_path):
         failures.append("reference_rule_sha256 is missing or stale")
+    if source.get("generation_profile") is not None:
+        try:
+            profile_binding = checked_binding(source["generation_profile"])
+            profile = json.loads(Path(profile_binding["path"]).read_text())
+            if profile.get("schema") != "foxjiu_generation_profile_v1":
+                raise ValueError("unsupported generation profile")
+            if profile.get("fixed_voice_reference_sha256") != rule["sha256"]:
+                raise ValueError("generation profile uses a different voice reference")
+            expected = profile.get("generation_config")
+            if not isinstance(expected, dict) or not expected:
+                raise ValueError("generation profile has no expected configuration")
+            for key, value in expected.items():
+                if key not in config or config[key] != value:
+                    raise ValueError("generation profile mismatch: " + key)
+            if source.get("seed_policy") != profile.get("seed_policy"):
+                raise ValueError("generation profile seed policy mismatch")
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            failures.append(str(exc))
     smoke_binding = None
     canonical_binding = None
     if phase not in {"reference", "bulk", "repair"}:
         failures.append("unknown generation phase")
+    if phase == "bulk" and (
+        source.get("purpose") in {"quality_tuning", "quality_tuning_only"}
+        or source.get("bulk_authorized") is False
+    ):
+        failures.append("quality-tuning or explicitly non-bulk input cannot start bulk generation; bind a formal source and actual opening review")
     if phase == "bulk" or smoke_review:
         try:
             if not smoke_review:

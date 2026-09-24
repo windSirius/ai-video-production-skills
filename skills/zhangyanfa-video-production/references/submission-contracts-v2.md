@@ -31,6 +31,7 @@
 - `schema: editorial_submission_v2`，`status: PASS`。
 - `bindings.script` 绑定当前 `script`，`bindings.canonical_text` 绑定当前正典纯文本。
 - 六项通用审查对象：`thesis_and_evidence`、`character_motivation`、`counterexplanation_and_falsifier`、`full_referent_and_readaloud_review`、`opening_promise`、`ending_payoff`。
+- `counterexplanation_and_falsifier` 检查研究是否处理反证，不要求把反证念进口播。狐久推断类按 [game-lore-script 连续叙事规则](../../game-lore-script/SKILL.md#狐久推断类口播连续叙事硬规则) 逐段检查：记录反证的非口播保存位置、中途打断的清理结果，以及结尾限定段的位置或无需保留的理由。原文必要条件和推测语气仍需准确。
 - 各项证据必须对应本稿；不涉及人物行动时写明不适用的理由，不为了表格虚构动机。
 - 狐久纯文本末尾必须是冻结的固定收束语。原有传统中文、作者语言、逐句/段间/全稿朗读检查继续执行；此报告不能替代它们。
 
@@ -85,7 +86,7 @@ python3 ../voxcpm-batch-dubbing/scripts/verify_voice_reference.py \
 - `unresolved_capacity_gaps:0`；通用审查对象 `capacity_review`。
 - 回扣总预算不得大于冻结上限。正式选镜仍要再做全片审计，容量判断不能替代最终结果。
 
-`P0=0` 与容量充足必须同时满足。A 轨只能选有效游戏/CG 画面；允许的转录卡限 B 轨且注明来源与争议，不以卡片填 A 轨缺口。
+`P0=0` 与容量充足必须同时满足。A 轨只能选有效游戏/CG 画面；转录卡限 B 轨且注明来源与证据性质。狐久已授权确实找不到的剧情画面按[缺画面转 B 规则](../../game-footage-ingest-index/references/foxjiu-missing-footage-fallback.md)改由 B 承接直接证据；冻结表应保留已查来源、原文、用户授权及实际呈现材料，不能把原生视频未取得继续作为同一条证据的阻断项，也不能仅改状态就宣称卡片完成。A 的相关上下文镜头仍需独立满足容量、时间覆盖与复用要求，B 卡不计入 A 物理镜头数量。
 
 ## 第八步：实际 A 轨提交门禁
 

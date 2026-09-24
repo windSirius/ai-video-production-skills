@@ -105,8 +105,20 @@ class HarnessTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def run_command(self, script: Path, *args: object) -> subprocess.CompletedProcess[str]:
+        command = [sys.executable, str(script), *[str(value) for value in args]]
+        if script == INIT:
+            # Legacy defaults may point through real user iCloud aliases. Keep
+            # fixture initialization local without changing production guards.
+            bootstrap = (
+                "import sys; sys.path.insert(0, sys.argv.pop(1)); "
+                "import init_run; init_run.SOURCE_PROXY_CACHE_ROOT=sys.argv.pop(1); "
+                "raise SystemExit(init_run.main())"
+            )
+            command = [sys.executable, "-c", bootstrap, str(SCRIPT_DIR),
+                       str(Path(self.temporary.name) / "source-cache"),
+                       *[str(value) for value in args]]
         return subprocess.run(
-            [sys.executable, str(script), *[str(value) for value in args]],
+            command,
             capture_output=True,
             text=True,
             check=False,
